@@ -165,7 +165,6 @@ static void *af_packet_thread(void *arg){
         }
 
         while (!g_stop) {
-
             struct tpacket_block_desc *bd;
             struct tpacket3_hdr *ppd;
             uint32_t offset;

@@ -30,10 +30,8 @@
 
 # Input:
 # Interface
-# IP of traffic generator machine
 # Output folder
 # Loops (optional)
-
 
 if [ "$#" -ne 2 ]; then
     echo "Usage: $0 <interface> <loops>" 
@@ -114,7 +112,7 @@ for thread in "${threads[@]}"; do
                 sleep 5
             elif [ "$strat" == "AF_PACKET" ]; then
                 cd "baseline_programs/af_packet/"
-                sudo numactl -C $thread_list  ./af_packet "$thread" "$interface" 65536 128 "$time_to_monitor" > "$output_folder_final/packet_counter.txt" &
+                sudo numactl -C $thread_list ./af_packet "$thread" "$interface" 65536 128 "$time_to_monitor" > "$output_folder_final/packet_counter.txt" &
             fi
 
             packet_capture_pid=$!
