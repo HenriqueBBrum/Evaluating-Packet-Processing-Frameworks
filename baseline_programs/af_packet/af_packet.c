@@ -17,6 +17,7 @@
 #include <sys/types.h>
 #include <unistd.h>
 #include <time.h>
+#include <sched.h>
 
 typedef struct ThreadCtx_ {
     int thread_id;
@@ -104,7 +105,7 @@ static int setup_socket(ThreadCtx *ctx, struct tpacket_req3 *req){
         return -1;
     }
 
-    fanout_arg = (int)((ctx->fanout_id & 0xFFFFU) | ((uint32_t)PACKET_FANOUT_CPU << 16));
+    fanout_arg = (int)((ctx->fanout_id & 0xFFFFU) | ((uint32_t)PACKET_FANOUT_LB << 16));
     if (setsockopt(fd, SOL_PACKET, PACKET_FANOUT, &fanout_arg, sizeof(fanout_arg)) < 0) {
         fprintf(stderr, "thread %d: PACKET_FANOUT failed: %s\n", ctx->thread_id, strerror(errno));
         close(fd);
@@ -130,6 +131,17 @@ static void *af_packet_thread(void *arg){
     uint64_t packets = 0;
     uint64_t bytes = 0;
     int fd;
+
+    cpu_set_t cpuset; 
+    int cpu = ctx->thread_id % sysconf(_SC_NPROCESSORS_ONLN);
+    CPU_ZERO(&cpuset);       //clears the cpuset
+    CPU_SET( cpu , &cpuset); //set CPU 2 on cpuset
+    pthread_t current_thread = pthread_self();    
+    if (pthread_setaffinity_np(current_thread, sizeof(cpu_set_t), &cpuset) != 0) {
+        fprintf(stderr, "thread %d: pthread_setaffinity_np failed: %s\n", ctx->thread_id, strerror(errno));
+        return NULL;
+    }
+    fprintf(stderr, "thread %d: set affinity to CPU %d\n", ctx->thread_id, cpu);
 
     fd = setup_socket(ctx, &req);
     if (fd < 0) {

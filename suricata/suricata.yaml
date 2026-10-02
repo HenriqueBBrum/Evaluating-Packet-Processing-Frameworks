@@ -670,9 +670,9 @@ logging:
 
 # Linux high speed capture support
 af-packet:
-  - interface: eth0
+  - interface: ens1f0np0
     # Number of receive threads. "auto" uses the number of cores
-    #threads: auto
+    threads: 8
     # Default clusterid. AF_PACKET will load balance packets based on flow.
     cluster-id: 99
     # Default AF_PACKET cluster type. AF_PACKET can load balance per flow or per hash.
@@ -687,7 +687,7 @@ af-packet:
     # Recommended modes are cluster_flow on most boxes and cluster_cpu or cluster_qm on system
     # with capture card using RSS (requires cpu affinity tuning and system IRQ tuning)
     # cluster_rollover has been deprecated; if used, it'll be replaced with cluster_flow.
-    cluster-type: cluster_flow
+    cluster-type: cluster_qm
     # In some fragmentation cases, the hash can not be computed. If "defrag" is set
     # to yes, the kernel will do the needed defragmentation before sending the packets.
     defrag: yes
@@ -697,13 +697,13 @@ af-packet:
     # Use tpacket_v3 capture mode.
     # Defaults to true for non-copy modes, and false for tap and ips mode.
     # Don't use it in IPS or TAP mode as it causes severe latency.
-    #tpacket-v3: yes
+    tpacket-v3: yes
     # Ring size will be computed with respect to "max-pending-packets" and number
     # of threads. You can set manually the ring size in number of packets by setting
     # the following value. If you are using flow "cluster-type" and have really network
     # intensive single-flow you may want to set the "ring-size" independently of the number
     # of threads:
-    #ring-size: 2048
+    ring-size: 2048
     # Block size is used by tpacket_v3 only. It should set to a value high enough to contain
     # a decent number of packets. Size is in bytes so please consider your MTU. It should be
     # a power of 2 and it must be multiple of page size (usually 4096).
@@ -711,17 +711,11 @@ af-packet:
     # tpacket_v3 block timeout: an open block is passed to userspace if it is not
     # filled after block-timeout milliseconds.
     #block-timeout: 10
-    # Block size for tpacket-v2. In 7.0.9 the built-in default was
-    # increased from 32768 to 131072. Uncomment and reset back to
-    # 32768 if this is a problem with your configuration.
-    #v2-block-size: 131072
     # On busy systems, set it to yes to help recover from a packet drop
     # phase. This will result in some packets (at max a ring flush) not being inspected.
     #use-emergency-flush: yes
     # recv buffer size, increased value could improve performance
     # buffer-size: 32768
-    # Set to yes to disable promiscuous mode
-    # disable-promisc: no
     # Choose checksum verification mode for the interface. At the moment
     # of the capture, some packets may have an invalid checksum due to
     # the checksum computation being offloaded to the network card.
@@ -733,35 +727,21 @@ af-packet:
     #  checksum off-loading is used.
     # Warning: 'capture.checksum-validation' must be set to yes to have any validation
     #checksum-checks: kernel
-    # BPF filter to apply to this interface. The pcap filter syntax applies here.
-    #bpf-filter: port 80 or udp
-    # You can use the following variables to activate AF_PACKET tap or IPS mode.
-    # If copy-mode is set to ips or tap, the traffic coming to the current
-    # interface will be copied to the copy-iface interface. If 'tap' is set, the
-    # copy is complete. If 'ips' is set, the packet matching a 'drop' action
-    # will not be copied.
-    #copy-mode: ips
-    #copy-iface: eth1
-    #  For eBPF and XDP setup including bypass, filter and load balancing, please
-    #  see doc/userguide/capture-hardware/ebpf-xdp.rst for more info.
-    # Enable HW timestamp support. HW timestamps can be unreliable and are disable
-    # by default, see https://redmine.openinfosecfoundation.org/issues/7585
-    #enable-hwtimestamp: true
 
   # Put default values here. These will be used for an interface that is not
   # in the list above.
   - interface: default
-    #threads: auto
+    #threads: 8
     # If left commented out, defaults to true when not in a copy
     # (inline) mode.
     #tpacket-v3: yes
 
 # Linux high speed af-xdp capture support
 af-xdp:
-  - interface: default
+  - interface: ens1f0np0
     # Number of receive threads. "auto" uses least between the number
     # of cores and RX queues
-    #threads: auto
+    threads: 8
     #disable-promisc: false
     # XDP_DRV mode can be chosen when the driver supports XDP
     # XDP_SKB mode can be chosen when the driver does not support XDP
@@ -769,7 +749,7 @@ af-xdp:
     #  - drv: enable XDP_DRV mode
     #  - skb: enable XDP_SKB mode
     #  - none: disable (kernel in charge of applying mode)
-    #force-xdp-mode: none
+    force-xdp-mode: drv
     # During socket binding the kernel will attempt zero-copy, if this
     # fails it will fallback to copy. If this fails, the bind fails.
     # The bind can be explicitly configured using the option below.
@@ -778,7 +758,7 @@ af-xdp:
     #  - zero: enable zero-copy mode
     #  - copy: enable copy mode
     #  - none: disable (kernel in charge of applying mode)
-    #force-bind-mode: none
+    force-bind-mode: zero
     # Memory alignment mode can vary between two modes, aligned and
     # unaligned chunk modes. By default, aligned chunk mode is selected.
     # select 'yes' to enable unaligned chunk mode.
@@ -813,12 +793,11 @@ dpdk:
   # DPDK capture support
   # RX queues (and TX queues in IPS mode) are assigned to cores in 1:1 ratio
   interfaces:
-    - interface: 0000:3b:00.0 # PCIe address of the NIC port
+    - interface: 0000:01:00.0 # PCIe address of the NIC port
       # Threading: possible values are either "auto" or number of threads
       # - auto takes all cores
       # in IPS mode it is required to specify the number of cores and the numbers on both interfaces must match
-      threads: auto
-      # interrupt-mode: false # true to switch to interrupt mode 
+      threads: 8
       promisc: true # promiscuous mode - capture all packets
       multicast: true # enables also detection on multicast packets
       checksum-checks: true # if Suricata should validate checksums
@@ -843,24 +822,6 @@ dpdk:
       # - ips: the same as tap mode but it also drops packets that are flagged by rules to be dropped
       copy-mode: none
       copy-iface: none # or PCIe address of the second interface
-
-    - interface: default
-      threads: auto
-      promisc: true
-      multicast: true
-      checksum-checks: true
-      checksum-checks-offload: true
-      mtu: 1500
-      vlan-strip-offload: false
-      rss-hash-functions: auto
-      linkup-timeout: 0
-      mempool-size: auto
-      mempool-cache-size: auto
-      rx-descriptors: auto
-      tx-descriptors: auto
-      copy-mode: none
-      copy-iface: none
-
 
 # Cross platform libpcap capture support
 pcap:
@@ -2152,7 +2113,7 @@ netmap:
    # Number of capture threads. "auto" uses number of RSS queues on interface.
    # Warning: unless the RSS hashing is symmetrical, this will lead to
    # accuracy issues.
-   #threads: auto
+   #threads: 8
    # You can use the following variables to activate netmap tap or IPS mode.
    # If copy-mode is set to ips or tap, the traffic coming to the current
    # interface will be copied to the copy-iface interface. If 'tap' is set, the
@@ -2181,7 +2142,7 @@ netmap:
    # BPF filter to apply to this interface. The pcap filter syntax apply here.
    #bpf-filter: port 80 or udp
  #- interface: eth3
-   #threads: auto
+   #threads: 8
    #copy-mode: tap
    #copy-iface: eth2
    # Put default values here
@@ -2190,10 +2151,10 @@ netmap:
 # PF_RING configuration: for use with native PF_RING support
 # for more info see http://www.ntop.org/products/pf_ring/
 pfring:
-  - interface: eth0
+  - interface: ens1f0np0
     # Number of receive threads. If set to 'auto' Suricata will first try
     # to use CPU (core) count and otherwise RSS queue count.
-    threads: auto
+    threads: 8
 
     # Default clusterid.  PF_RING will load balance packets based on flow.
     # All threads/processes that will participate need to have the same
@@ -2210,14 +2171,6 @@ pfring:
     # - cluster_round_robin (NOT RECOMMENDED)
     cluster-type: cluster_flow
 
-    # bpf filter for this interface
-    #bpf-filter: tcp
-
-    # If bypass is set then the PF_RING hw bypass is activated, when supported
-    # by the network interface. Suricata will instruct the interface to bypass
-    # all future packets for a flow that need to be bypassed.
-    #bypass: yes
-
     # Choose checksum verification mode for the interface. At the moment
     # of the capture, some packets may have an invalid checksum due to
     # the checksum computation being offloaded to the network card.
@@ -2228,15 +2181,7 @@ pfring:
     #  - auto: Suricata uses a statistical approach to detect when
     #  checksum off-loading is used. (default)
     # Warning: 'checksum-validation' must be set to yes to have any validation
-    #checksum-checks: auto
-  # Second interface
-  #- interface: eth1
-  #  threads: 3
-  #  cluster-id: 93
-  #  cluster-type: cluster_flow
-  # Put default values here
-  - interface: default
-    #threads: 2
+    checksum-checks: rxonly
 
 ##
 ## Configure Suricata to load Suricata-Update managed rules.
