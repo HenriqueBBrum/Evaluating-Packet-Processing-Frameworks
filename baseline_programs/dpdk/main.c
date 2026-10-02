@@ -13,12 +13,11 @@
 #define MBUF_CACHE_SIZE 512
 #define BURST_SIZE 32
 #define RX_RING_SIZE 1024
-#define MAX_LCORES 128
+#define MAX_LCORES 48
 
 struct lcore_args {
     uint16_t port_id;
-    uint16_t start_queue_id;
-    uint16_t num_queues;
+    uint16_t queue_id;
     struct rte_mempool *mempool;
     uint64_t total_pkts;
     uint64_t total_bytes;
@@ -87,29 +86,24 @@ int parse_app_args(int argc, char **argv, char **pci_address, int *verbose, int 
 int read_packets_lcore(void *arg){
     struct lcore_args *largs = (struct lcore_args *)arg;
     uint16_t lcore_id = rte_lcore_id();
-    printf("Lcore %u: Starting packet reading routine on queues %u-%u\n", 
-           lcore_id, largs->start_queue_id, largs->start_queue_id + largs->num_queues - 1);
+    printf("Lcore %u: Starting packet reading routine on queue %u\n", 
+           lcore_id, largs->queue_id);
     
     struct rte_mbuf *rx_packets[BURST_SIZE];
     uint16_t rx_count = 0;
 
     while (!exit_indicator) {
-        // Read packets from all queues assigned to this lcore
-        for (uint16_t q = 0; q < largs->num_queues; q++) {
-            uint16_t queue_id = largs->start_queue_id + q;
-            
-            rx_count = rte_eth_rx_burst(largs->port_id, queue_id, rx_packets, BURST_SIZE);
+        rx_count = rte_eth_rx_burst(largs->port_id, largs->queue_id, rx_packets, BURST_SIZE);
 
-            if (rx_count == 0) 
-                continue;
+        if (rx_count == 0) 
+            continue;
 
-            // Packets received.
-            for (uint16_t i = 0; i < rx_count; i++)
-                largs->total_bytes += (uint64_t)rx_packets[i]->data_len;
+        // Packets received.
+        for (uint16_t i = 0; i < rx_count; i++)
+            largs->total_bytes += (uint64_t)rx_packets[i]->data_len;
 
-            largs->total_pkts += (uint64_t)rx_count;
-            rte_pktmbuf_free_bulk(rx_packets, rx_count);
-        }
+        largs->total_pkts += (uint64_t)rx_count;
+        rte_pktmbuf_free_bulk(rx_packets, rx_count);
     }
     
     printf("Lcore %u: Exiting packet reading routine\n", lcore_id);
