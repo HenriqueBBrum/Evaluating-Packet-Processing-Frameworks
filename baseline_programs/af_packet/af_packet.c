@@ -29,13 +29,12 @@ typedef struct ThreadCtx_ {
     struct tpacket_stats *kstats;
 } ThreadCtx;
 
-static volatile sig_atomic_t g_stop = 0;
-
+static volatile sig_atomic_t exit_indicator = 0;
 static void handle_signal(int sig){
-    (void)sig;
-    g_stop = 1;
+    exit_indicator = 1;
     printf("Signal received, stopping all threads...\n");
 }
+
 
 static int get_ifindex(int fd, const char *ifname, int verbose){
     struct ifreq ifr;
@@ -78,8 +77,6 @@ static int setup_socket(ThreadCtx *ctx, struct tpacket_req3 *req){
     req->tp_frame_size = ctx->frame_size;
     req->tp_frame_nr = (ctx->block_size * ctx->block_nr) / ctx->frame_size;
     req->tp_retire_blk_tov = 64;
-
-    printf("Memory used in bytes: %zu\n", (size_t)req->tp_block_size * req->tp_block_nr);
 
     if (setsockopt(fd, SOL_PACKET, PACKET_RX_RING, req, sizeof(*req)) < 0) {
         fprintf(stderr, "thread %d: PACKET_RX_RING failed: %s\n", ctx->thread_id, strerror(errno));
@@ -151,8 +148,8 @@ static void *af_packet_thread(void *arg){
     pfd.fd = fd;
     pfd.events = POLLIN;
 
-    while (!g_stop) {
-        int pr = poll(&pfd, 1, 1000);
+    while (!exit_indicator) {
+        int pr = poll(&pfd, 1, 100);
         if (pr < 0) {
             if (errno == EINTR) {
                 continue;
@@ -164,7 +161,7 @@ static void *af_packet_thread(void *arg){
             continue;
         }
 
-        while (!g_stop) {
+        while (!exit_indicator) {
             struct tpacket_block_desc *bd;
             struct tpacket3_hdr *ppd;
             uint32_t offset;
@@ -207,6 +204,9 @@ static void *af_packet_thread(void *arg){
 }
 
 int main(int argc, char *argv[]){ 
+    signal(SIGINT, handle_signal);
+    signal(SIGTERM, handle_signal);
+    
     if (argc < 6) {
         fprintf(stderr, "Usage: %s <num_threads> <interface> <block_size> <block_nr> <duration>\n", argv[0]);
         return 1;
@@ -243,9 +243,6 @@ int main(int argc, char *argv[]){
         return 1;
     }
 
-    signal(SIGINT, handle_signal);
-    signal(SIGTERM, handle_signal);
-
     int fd = socket(AF_PACKET, SOCK_RAW, htons(ETH_P_ALL));
     if (fd < 0) {
         perror("socket");
@@ -267,8 +264,10 @@ int main(int argc, char *argv[]){
         return 1;
     }
 
-    uint32_t fanout_id = (uint32_t)getpid() & 0xFFFFU;
+    fprintf(stdout, "Starting packet capture on interface %s with %u threads, where each thread will "
+        "use %u blocks of %u size totalling %u bytes for a duration of %u seconds\n", ifname, num_threads, block_nr, block_size,  block_size * block_nr, duration);
 
+    uint32_t fanout_id = (uint32_t)getpid() & 0xFFFFU;
     for (uint8_t i = 0; i < num_threads; i++) {
         ctxs[i].thread_id = i;
         ctxs[i].ifindex = ifindex;
@@ -290,27 +289,27 @@ int main(int argc, char *argv[]){
 
         if (pthread_create(&threads[i], NULL, af_packet_thread, &ctxs[i]) != 0) {
             fprintf(stderr, "failed to create thread %u\n", i);
-            g_stop = 1;
+            exit_indicator = 1;
             break;
         }
     }
 
     struct timespec start, current;
     clock_gettime(CLOCK_MONOTONIC, &start);
-    while (1 && g_stop == 0) {
+    while (1 && exit_indicator == 0) {
         clock_gettime(CLOCK_MONOTONIC, &current);
         if ((current.tv_sec - start.tv_sec) >= duration) {
-            g_stop = 1;
+            exit_indicator = 1;
             break;
         }
         usleep(100000); // Sleep for 100ms to reduce CPU usage
     }
 
     // Stop all threads
-    if (g_stop == 0) {
+    if (exit_indicator == 0) {
         printf("%d seconds elapsed. Stopping all threads ...\n", duration);
     }
-    g_stop = 1;
+    exit_indicator = 1;
 
     uint64_t total_packets = 0;
     uint64_t total_drops = 0;

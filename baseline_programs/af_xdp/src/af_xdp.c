@@ -100,7 +100,7 @@ static struct xsk_socket_info *xsk_configure_socket(struct xsk_umem_info *umem, 
     xsk_cfg.tx_size = XSK_RING_PROD__DEFAULT_NUM_DESCS;
     xsk_cfg.libbpf_flags = XSK_LIBBPF_FLAGS__INHIBIT_PROG_LOAD;
     xsk_cfg.xdp_flags = flags;
-    xsk_cfg.bind_flags = 0;
+    xsk_cfg.bind_flags = XDP_ZEROCOPY;
 
     ret = xsk_socket__create(&xsk_info->xsk, dev, rxqueue, umem->umem, &xsk_info->rx, &xsk_info->tx, &xsk_cfg);
     if (ret) {
@@ -115,9 +115,9 @@ static struct xsk_socket_info *xsk_configure_socket(struct xsk_umem_info *umem, 
     }
 
     // Initialize umem frame allocation.
-    for (i = 0; i < NUM_FRAMES; i++){
+    for (i = 0; i < NUM_FRAMES; i++)
         xsk_info->umem_frame_addr[i] = i * FRAME_SIZE;
-    }
+
     xsk_info->umem_frame_free = NUM_FRAMES;
 
     // Stuff the receive path with buffers, we assume we have enough.
@@ -150,7 +150,7 @@ void *PollXSK(void *data){
     #endif
 
     while (!ti->done){
-        ret = poll(fds, nfds, 100);
+        ret = poll(fds, nfds, 1000);
         if (ret != 1)
             continue;
 

@@ -19,23 +19,23 @@
 
 #include "af_xdp.h"
 
-static volatile sig_atomic_t cont = 1;
-
-static void sighndl(int sig) {
-    cont = 0;
+static volatile sig_atomic_t exit_indicator = 0;
+static void handle_signal(int sig){
+    exit_indicator = 1;
+    printf("Signal received, stopping all threads...\n");
 }
 
 /**
- * Retrieves the number of RX queues for a network interface using ioctl/ethtool.
+ * Retrieves the number of combined queues for a network interface using ioctl/ethtool.
  * 
  * @param ifname Interface name (e.g., "eth0")
- * @return Number of RX queues, or -1 on error.
+ * @return Number of combined queues, or -1 on error.
 **/
 static int get_if_num_channels(const char *ifname) {
     int sock = socket(AF_INET, SOCK_DGRAM, 0);
     if (sock < 0) {
         fprintf(stderr, "ERROR :: Failed to create socket for ioctl: %s\n", strerror(errno));
-        return 0;
+        return -1;
     }
     
     struct ifreq ifr = {0};
@@ -48,7 +48,7 @@ static int get_if_num_channels(const char *ifname) {
     if (ioctl(sock, SIOCETHTOOL, &ifr) < 0) {
         fprintf(stderr, "ERROR :: ioctl SIOCETHTOOL failed for %s: %s\n", ifname, strerror(errno));
         close(sock);
-        return 0;
+        return -1;
     }
     
     close(sock);
@@ -57,6 +57,9 @@ static int get_if_num_channels(const char *ifname) {
 
 
 int main(int argc, char *argv[]){
+    signal(SIGINT, handle_signal);
+    signal(SIGTERM, handle_signal);
+    
     if (argc < 3) {
         fprintf(stderr, "Usage: %s <interface> <num_frames> <duration>\n", argv[0]);
         fprintf(stderr, "  interface: Network interface name\n");
@@ -121,10 +124,8 @@ int main(int argc, char *argv[]){
         return EXIT_FAILURE;
     }
 
-    signal(SIGINT, sighndl);
-
     __u32 timelap = 0;
-    while (cont){
+    while (!exit_indicator){
         sleep(1);
         if (duration > 0 && timelap >= duration)
             break;
