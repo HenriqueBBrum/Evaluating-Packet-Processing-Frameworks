@@ -136,6 +136,7 @@ int main(int argc, char **argv){
     // Detecting the logical cores (CPUs) ids passed to this DPDK application. 
     uint16_t worker_lcores[MAX_LCORES];
     uint16_t num_worker_lcores = 0;
+
     printf("\n------------------- APPLICATION INFORMATION --------------------\n");
     printf("Worker logical cores ids (CPU ids): ");
     int i;
@@ -147,7 +148,7 @@ int main(int argc, char **argv){
     printf("\n");
     if (num_worker_lcores < 1) {
         fprintf(stderr, "At least one worker logical core is required to run this DPDK application.\n");
-        exit(1);
+        return EXIT_FAILURE;
     }
 
     uint16_t port_id_to_use = 0;
@@ -161,7 +162,7 @@ int main(int argc, char **argv){
         if (total_port_count >= RTE_MAX_ETHPORTS){
             fprintf(stderr, "Total number of detected ports exceeds RTE_MAX_ETHPORTS.\n");
             rte_eal_cleanup();
-            exit(1);
+            return EXIT_FAILURE;
         }
 
         char name[RTE_ETH_NAME_MAX_LEN];
@@ -191,7 +192,7 @@ int main(int argc, char **argv){
         if (mempools[lcore_id] == NULL) {
             fprintf(stderr, "Unable to create mempool for lcore %u\n", lcore_id);
             rte_eal_cleanup();
-            exit(1);
+            return EXIT_FAILURE;
         }
     }
 
@@ -206,7 +207,7 @@ int main(int argc, char **argv){
     if ((return_val = rte_eth_dev_configure(port_id_to_use, rx_queues, tx_queues, &port_conf)) != 0) {
         fprintf(stderr, "Unable to configure port. port Id: %u Return code: %d\n", port_id_to_use, return_val);
         rte_eal_cleanup();
-        exit(1);
+        return EXIT_FAILURE;
     }
 
     // Configuration (port_id, mempool, counters) per lcore
@@ -239,9 +240,8 @@ int main(int argc, char **argv){
     
     // Try to enable promiscuous mode on the port.
     return_val = rte_eth_promiscuous_enable(port_id_to_use);
-    if (return_val < 0) {
+    if (return_val < 0) 
         printf("Warning: Unable to set the promiscuous mode for port Id: %u Return code: %d Ignoring ...\n", port_id_to_use, return_val);
-    }
 
     return_val = rte_eth_dev_start(port_id_to_use);
     if (return_val < 0) {

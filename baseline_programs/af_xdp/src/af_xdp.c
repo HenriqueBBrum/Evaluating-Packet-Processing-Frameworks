@@ -133,25 +133,23 @@ static struct xsk_socket_info *xsk_configure_socket(struct xsk_umem_info *umem_i
 void *PollXSK(void *data){
     struct thread_info *ti = (struct thread_info *)data;
 
-    struct pollfd fds[2];
+    struct pollfd pfd;
     int ret, nfds = 1;
-
-    memset(fds, 0, sizeof(fds));
-    fds[0].fd = xsk_socket__fd(ti->xsk_info->xsk);
-    fds[0].events = POLLIN;
+    pfd.fd = xsk_socket__fd(ti->xsk_info->xsk);
+    pfd.events = POLLIN;
 
     #ifdef DEBUG
-        fprintf(stdout, "[XSK] Starting to poll for FD %d...\n", fds[0].fd);
+        fprintf(stdout, "[XSK] Starting to poll for FD %d...\n", pfd.fd);
     #endif
 
     while (!ti->done){
-        ret = poll(fds, nfds, 0);
+        ret = poll(&pfd, nfds, 0);
         if (ret != 1)
             continue;
 
         __u32 idx_rx, idx_fq = 0;
+        // Reads RX_BATCH_SIZE packets
         __u32 rcvd = xsk_ring_cons__peek(&ti->xsk_info->rx, RX_BATCH_SIZE, &idx_rx);
-
         if (!rcvd)
             continue;
 

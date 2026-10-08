@@ -147,45 +147,36 @@ static void *af_packet_thread(void *arg){
     }
 
     struct pollfd pfd;
-    memset(&pfd, 0, sizeof(pfd));
+    int ret, nfds = 1;
     pfd.fd = fd;
     pfd.events = POLLIN;
-
     while (!exit_indicator) {
-        int pr = poll(&pfd, 1, 0);
-        if (pr < 0) {
-            if (errno == EINTR) {
+        ret = poll(&pfd, nfds, 0);
+        if (ret < 0) {
+            if (errno == EINTR) 
                 continue;
-            }
+            
             fprintf(stderr, "thread %d: poll failed: %s\n", ctx->thread_id, strerror(errno));
             break;
         }
-        if (pr == 0) {
+        if (ret == 0) 
             continue;
+
+        struct tpacket_block_desc *bd = (struct tpacket_block_desc *)(ring + ((size_t)block_idx * req.tp_block_size));
+        if ((bd->hdr.bh1.block_status & TP_STATUS_USER) == 0) 
+            continue;
+
+        uint32_t offset = bd->hdr.bh1.offset_to_first_pkt;
+        struct tpacket3_hdr *ppd;
+        for (uint32_t i = 0; i < bd->hdr.bh1.num_pkts; i++) {
+            ppd = (struct tpacket3_hdr *)((uint8_t *)bd + offset);
+            packets++;
+            bytes += ppd->tp_snaplen;
+            offset += ppd->tp_next_offset;
         }
 
-        while (!exit_indicator) {
-            struct tpacket_block_desc *bd;
-            struct tpacket3_hdr *ppd;
-            uint32_t offset;
-            uint32_t i;
-
-            bd = (struct tpacket_block_desc *)(ring + ((size_t)block_idx * req.tp_block_size));
-            if ((bd->hdr.bh1.block_status & TP_STATUS_USER) == 0) {
-                break;
-            }
-
-            offset = bd->hdr.bh1.offset_to_first_pkt;
-            for (i = 0; i < bd->hdr.bh1.num_pkts; i++) {
-                ppd = (struct tpacket3_hdr *)((uint8_t *)bd + offset);
-                packets++;
-                bytes += ppd->tp_snaplen;
-                offset += ppd->tp_next_offset;
-            }
-
-            bd->hdr.bh1.block_status = TP_STATUS_KERNEL;
-            block_idx = (block_idx + 1U) % req.tp_block_nr;
-        }
+        bd->hdr.bh1.block_status = TP_STATUS_KERNEL;
+        block_idx = (block_idx + 1U) % req.tp_block_nr;
     }
 
     printf("Packets processed: %llu bytes processed: %llu\n", (unsigned long long)packets, (unsigned long long)bytes);
@@ -203,7 +194,8 @@ static void *af_packet_thread(void *arg){
     ((ThreadCtx *)arg)->kstats->tp_drops = kstats.tp_drops;
     munmap(ring, ring_len);
     close(fd);
-    return NULL;
+
+    pthread_exit(NULL);
 }
 
 int main(int argc, char *argv[]){ 
@@ -287,9 +279,8 @@ int main(int argc, char *argv[]){
         CPU_ZERO(&current_cpu_set);
         CPU_SET(cpu_to_bind, &current_cpu_set);
 
-        if (pthread_attr_setaffinity_np(&thread_attrs, sizeof(cpu_set_t), &current_cpu_set) != 0) {
+        if (pthread_attr_setaffinity_np(&thread_attrs, sizeof(cpu_set_t), &current_cpu_set) != 0)
             printf("Can't set CPU affinity for thread\n");
-        }
 
         if (pthread_create(&threads[i], &thread_attrs, af_packet_thread, &ctxs[i]) != 0) {
             fprintf(stderr, "failed to create thread %u\n", i);
