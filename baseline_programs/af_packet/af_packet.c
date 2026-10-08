@@ -19,6 +19,10 @@
 #include <time.h>
 #include <sched.h>
 
+
+#define MAX_CORES 48;
+
+
 typedef struct ThreadCtx_ {
     int thread_id;
     int ifindex;
@@ -105,7 +109,7 @@ static int setup_socket(ThreadCtx *ctx, struct tpacket_req3 *req){
         return -1;
     }
 
-    fanout_arg = (int)((ctx->fanout_id & 0xFFFFU) | ((uint32_t)PACKET_FANOUT_LB << 16));
+    fanout_arg = (int)((ctx->fanout_id & 0xFFFFU) | ((uint32_t)PACKET_FANOUT_CPU << 16));
     if (setsockopt(fd, SOL_PACKET, PACKET_FANOUT, &fanout_arg, sizeof(fanout_arg)) < 0) {
         fprintf(stderr, "thread %d: PACKET_FANOUT failed: %s\n", ctx->thread_id, strerror(errno));
         close(fd);
@@ -123,45 +127,32 @@ typedef struct {
 
 static void *af_packet_thread(void *arg){
     ThreadCtx *ctx = (ThreadCtx *)arg;
-    struct tpacket_req3 req;
-    struct pollfd pfd;
-    uint8_t *ring;
-    size_t ring_len;
+
     uint32_t block_idx = 0;
     uint64_t packets = 0;
     uint64_t bytes = 0;
-    int fd;
 
-    cpu_set_t cpuset; 
-    int cpu = ctx->thread_id % sysconf(_SC_NPROCESSORS_ONLN);
-    CPU_ZERO(&cpuset);       //clears the cpuset
-    CPU_SET( cpu , &cpuset); //set CPU 2 on cpuset
-    pthread_t current_thread = pthread_self();    
-    if (pthread_setaffinity_np(current_thread, sizeof(cpu_set_t), &cpuset) != 0) {
-        fprintf(stderr, "thread %d: pthread_setaffinity_np failed: %s\n", ctx->thread_id, strerror(errno));
-        return NULL;
-    }
-    fprintf(stderr, "thread %d: set affinity to CPU %d\n", ctx->thread_id, cpu);
-
-    fd = setup_socket(ctx, &req);
+    struct tpacket_req3 req;
+    int fd = setup_socket(ctx, &req);
     if (fd < 0) {
         return NULL;
     }
 
-    ring_len = (size_t)req.tp_block_size * req.tp_block_nr;
-    ring = mmap(NULL, ring_len, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_LOCKED, fd, 0);
+    size_t ring_len = (size_t)req.tp_block_size * req.tp_block_nr;
+    uint8_t *ring = mmap(NULL, ring_len, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_LOCKED, fd, 0);
     if (ring == MAP_FAILED) {
         fprintf(stderr, "thread %d: mmap failed: %s\n", ctx->thread_id, strerror(errno));
         close(fd);
         return NULL;
     }
 
+    struct pollfd pfd;
     memset(&pfd, 0, sizeof(pfd));
     pfd.fd = fd;
     pfd.events = POLLIN;
 
     while (!exit_indicator) {
-        int pr = poll(&pfd, 1, 100);
+        int pr = poll(&pfd, 1, 0);
         if (pr < 0) {
             if (errno == EINTR) {
                 continue;
@@ -224,9 +215,6 @@ int main(int argc, char *argv[]){
         return 1;
     }
 
-    pthread_t *threads;
-    ThreadCtx *ctxs;
-
     unsigned long parsed_threads = strtoul(argv[1], NULL, 10);
     if (parsed_threads == 0 || parsed_threads > 255) {
         fprintf(stderr, "Invalid num_threads: %s\n", argv[1]);
@@ -267,17 +255,11 @@ int main(int argc, char *argv[]){
         return 1;
     }
 
-    threads = calloc(num_threads, sizeof(*threads));
-    ctxs = calloc(num_threads, sizeof(*ctxs));
-    if (threads == NULL || ctxs == NULL) {
-        fprintf(stderr, "allocation failed\n");
-        free(threads);
-        free(ctxs);
-        return 1;
-    }
+    pthread_t threads[num_threads];
+    ThreadCtx ctxs[num_threads];
 
     fprintf(stdout, "Starting packet capture on interface %s with %u threads, where each thread will "
-        "use %u blocks of %u size totalling %u bytes for a duration of %u seconds\n", ifname, num_threads, block_nr, block_size,  block_size * block_nr, duration);
+        "use %u blocks of %u size totalling %u bytes for a duration of %u seconds\n", ifname, num_threads, block_nr, block_size,  block_size * block_nr * num_threads, duration);
 
     uint32_t fanout_id = (uint32_t)getpid() & 0xFFFFU;
     for (uint8_t i = 0; i < num_threads; i++) {
@@ -290,20 +272,32 @@ int main(int argc, char *argv[]){
         ctxs[i].kstats = calloc(1, sizeof(struct tpacket_stats));
         if (ctxs[i].kstats == NULL) {
             fprintf(stderr, "allocation failed for kstats\n");
-            free(threads);
-            for (uint8_t j = 0; j < i; j++) {
+            for (uint8_t j = 0; j < i; j++) 
                 free(ctxs[j].kstats);
-            }
-            free(ctxs);
+
             return 1;
         }
         strncpy(ctxs[i].ifname, ifname, IFNAMSIZ - 1);
 
-        if (pthread_create(&threads[i], NULL, af_packet_thread, &ctxs[i]) != 0) {
+        pthread_attr_t thread_attrs;
+        pthread_attr_init(&thread_attrs);
+
+        cpu_set_t current_cpu_set;
+        int cpu_to_bind = i % MAX_CORES;
+        CPU_ZERO(&current_cpu_set);
+        CPU_SET(cpu_to_bind, &current_cpu_set);
+
+        if (pthread_attr_setaffinity_np(&thread_attrs, sizeof(cpu_set_t), &current_cpu_set) != 0) {
+            printf("Can't set CPU affinity for thread\n");
+        }
+
+        if (pthread_create(&threads[i], &thread_attrs, af_packet_thread, &ctxs[i]) != 0) {
             fprintf(stderr, "failed to create thread %u\n", i);
             exit_indicator = 1;
             break;
         }
+
+        pthread_attr_destroy(&thread_attrs);
     }
 
     struct timespec start, current;
@@ -314,13 +308,13 @@ int main(int argc, char *argv[]){
             exit_indicator = 1;
             break;
         }
-        usleep(100000); // Sleep for 100ms to reduce CPU usage
+        sleep(1);
     }
 
     // Stop all threads
-    if (exit_indicator == 0) {
+    if (exit_indicator == 0) 
         printf("%d seconds elapsed. Stopping all threads ...\n", duration);
-    }
+  
     exit_indicator = 1;
 
     uint64_t total_packets = 0;
@@ -335,11 +329,9 @@ int main(int argc, char *argv[]){
         }
     }
 
-    free(threads);
-    for (uint8_t i = 0; i < num_threads; i++) {
+    for (uint8_t i = 0; i < num_threads; i++)
         free(ctxs[i].kstats);
-    }
-    free(ctxs);
+
     printf("Total packets: %llu\n", (unsigned long long)total_packets);
     printf("Total drops: %llu\n", (unsigned long long)total_drops);
     return 0;

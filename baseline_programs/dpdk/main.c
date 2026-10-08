@@ -209,6 +209,7 @@ int main(int argc, char **argv){
         exit(1);
     }
 
+    // Configuration (port_id, mempool, counters) per lcore
     struct lcore_args lcore_args_array[MAX_LCORES];
     for (int i = 0; i < num_worker_lcores; i++) {
         uint16_t lcore_id = worker_lcores[i];

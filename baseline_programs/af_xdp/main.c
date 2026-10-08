@@ -19,12 +19,6 @@
 
 #include "af_xdp.h"
 
-static volatile sig_atomic_t exit_indicator = 0;
-static void handle_signal(int sig){
-    exit_indicator = 1;
-    printf("Signal received, stopping all threads...\n");
-}
-
 /**
  * Retrieves the number of combined queues for a network interface using ioctl/ethtool.
  * 
@@ -57,9 +51,6 @@ static int get_if_num_channels(const char *ifname) {
 
 
 int main(int argc, char *argv[]){
-    signal(SIGINT, handle_signal);
-    signal(SIGTERM, handle_signal);
-    
     if (argc < 3) {
         fprintf(stderr, "Usage: %s <interface> <num_frames> <duration>\n", argv[0]);
         fprintf(stderr, "  interface: Network interface name\n");
@@ -100,7 +91,7 @@ int main(int argc, char *argv[]){
     if (!prog) {
         fprintf(stderr, "ERROR: Program 'xdp_redirect_xsk' not found in object file\n");
         bpf_object__close(obj);
-        exit(EXIT_FAILURE);
+        return EXIT_FAILURE;
     }
 
     __u32 flags = XDP_FLAGS_DRV_MODE | XDP_FLAGS_UPDATE_IF_NOEXIST;
@@ -115,58 +106,13 @@ int main(int argc, char *argv[]){
     int channels = get_if_num_channels(interface);
     fprintf(stdout, "Interface %s has %d combined channels\n", interface, channels);
     
-    struct thread_info *thread_info = NULL;
-    pthread_t *threads = NULL;
-    int err_setup = setupxsk(interface, ifidx, flags, channels, obj, &thread_info, &threads);
-    if (err_setup != EXIT_SUCCESS) {
-        fprintf(stderr, "Error setting up AF_XDP sockets\n");
-        bpf_object__close(obj);
-        return EXIT_FAILURE;
-    }
-
-    __u32 timelap = 0;
-    while (!exit_indicator){
-        sleep(1);
-        if (duration > 0 && timelap >= duration)
-            break;
-
-        timelap++;
-    }
-
-    // Signal threads to stop
-    for (int i = 0; i < channels; i++)
-        thread_info[i].done = 1;
-
-    // Join all threads
-    __u64 total_packets = 0;
-    __u64 total_bytes = 0;
-    for (int i = 0; i < channels; i++) {
-        pthread_join(threads[i], NULL);
-        total_packets += thread_info[i].packets;
-        total_bytes += thread_info[i].bytes;
-        fprintf(stdout, "Thread %d: Packets = %llu | Bytes = %llu\n", i, thread_info[i].packets, thread_info[i].bytes);
-    }
-
-    __u64 avgpps = 0;
-    if (total_packets > 0 && timelap > 0) {
-        avgpps = total_packets / timelap;
-    }
-
-    __u64 avgbps = 0;
-    if (total_bytes > 0 && timelap > 0) {
-        avgbps = total_bytes / timelap;
-    }
-
-    fprintf(stdout, "\nFinal Results:\n");
-    fprintf(stdout, "Total packets: %llu | Avg PPS: %llu\n", total_packets, avgpps);
-    fprintf(stdout, "Total bytes: %llu | Avg BPS: %llu\n", total_bytes, avgbps);
-    fprintf(stdout, "Duration: %u seconds | Threads: %d\n", timelap, channels);
+    /** Main function call **/
+    int ret = run_af_xdp(interface,  ifidx, flags, channels, obj, num_frames, duration);
+    if (ret == EXIT_FAILURE)
+        fprintf(stdout, "ERROR: Failure at main function");
 
     bpf_xdp_detach(ifidx, flags, NULL);
     bpf_object__close(obj);
-    cleanupxsk(channels);
-    free(thread_info);
-    free(threads);
     
     return EXIT_SUCCESS;
 }

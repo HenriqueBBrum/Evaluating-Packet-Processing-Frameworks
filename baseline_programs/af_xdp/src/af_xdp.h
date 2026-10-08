@@ -7,9 +7,6 @@
 
 struct bpf_object;
 
-#define MAX_CPUS 48
-
-#define NUM_FRAMES 8192
 #define FRAME_SIZE XSK_UMEM__DEFAULT_FRAME_SIZE
 #define RX_BATCH_SIZE 64
 #define INVALID_UMEM_FRAME UINT64_MAX
@@ -33,19 +30,20 @@ struct xsk_socket {
 struct xsk_socket_info{
     struct xsk_ring_cons rx;
     struct xsk_ring_prod tx;
-    struct xsk_umem_info *umem;
+    struct xsk_umem_info *umem_info;
     struct xsk_socket *xsk;
 
-    __u64 umem_frame_addr[NUM_FRAMES];
+    __u64 *umem_frame_addr;
     __u32 umem_frame_free;
 };
 
 struct thread_info{
     int id;
-    struct xsk_socket_info *xsk;
+    struct xsk_socket_info *xsk_info;
     __u64 packets;
     __u64 bytes;
     volatile int done;
+    __u64 num_frames;
 };
 
 struct stats{
@@ -53,6 +51,4 @@ struct stats{
     __u64 bytes;
 };
 
-__u32 bpf_num_possible_cpus();
-int setupxsk(const char *dev, int ifidx, __u32 xdpflags, __u32 threads, struct bpf_object *obj, struct thread_info **thread_info_out, pthread_t **threads_out);
-void cleanupxsk(__u32 threads);
+int run_af_xdp(const char *dev, int ifidx, __u32 xdpflags, __u32 threads, struct bpf_object *obj, __u64 num_frames, __u32 duration);
