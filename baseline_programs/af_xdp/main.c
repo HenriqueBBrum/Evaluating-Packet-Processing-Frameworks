@@ -1,8 +1,10 @@
 #include <stdio.h>
 #include <unistd.h>
 #include <stdlib.h>
+#include <getopt.h>
 #include <signal.h>
 #include <errno.h>
+#include <string.h>
 #include <sys/resource.h>
 #include <sys/socket.h>
 #include <sys/ioctl.h>
@@ -18,6 +20,57 @@
 #include <arpa/inet.h>
 
 #include "af_xdp.h"
+
+
+void print_usage(const char *prog_name){
+    printf("Usage: %s [OPTIONS]\n", prog_name);
+    printf("\nAPP_OPTIONS:\n");
+    printf("  -h, --help              Display this help message\n");
+    printf("  -i, --interface         Network interface name (e.g., eth0)\n");
+    printf("  -n, --num_frames        Number of frames in ring buffer (> 0)\n");
+    printf("  -d, --duration          Duration in seconds (0 for infinite)\n");
+    printf("\nExamples:\n");
+    printf("  %s -i eth0 -n 1024 -d 10\n", prog_name);
+    printf("  %s eth0 1024 10\n", prog_name);
+}
+
+int parse_app_args(int argc, char **argv, char **interface, int *num_frames, int *duration){
+    int opt;
+    struct option long_options[] = {
+        {"help",    no_argument,       0, 'h'},
+        {"interface", required_argument, 0, 'i'},
+        {"num_frames",    required_argument, 0, 'n'},
+        {"duration",    required_argument, 0, 'd'},
+        {0, 0, 0, 0}
+    };
+
+    int option_index = 0;
+    while ((opt = getopt_long(argc, argv, "hi:n:d:", long_options, &option_index)) != -1) {
+        switch (opt) {
+            case 'h':
+                print_usage(argv[0]);
+                exit(0);
+            case 'i':
+                *interface = optarg;
+                break;
+            case 'n':
+                *num_frames = atoi(optarg);
+                break;
+            case 'd':
+                *duration = atoi(optarg);
+                break;
+            case '?':
+                fprintf(stderr, "Unknown option\n");
+                print_usage(argv[0]);
+                exit(1);
+            default:
+                break;
+        }
+    }
+
+    return optind;
+}
+
 
 /**
  * Retrieves the number of combined queues for a network interface using ioctl/ethtool.
@@ -51,20 +104,26 @@ static int get_if_num_channels(const char *ifname) {
 
 
 int main(int argc, char *argv[]){
-    if (argc < 3) {
-        fprintf(stderr, "Usage: %s <interface> <num_frames> <duration>\n", argv[0]);
-        fprintf(stderr, "  interface: Network interface name\n");
-        fprintf(stderr, "  num_frames: Number of frames in ring buffer\n");
-        fprintf(stderr, "  duration: Duration to run in seconds (0 for infinite)\n");
+    char *interface = NULL;
+    int num_frames = 0;
+    int duration = 0;
+
+    int first_nonopt = parse_app_args(argc, argv, &interface, &num_frames, &duration_input);
+
+    if (!interface) {
+        fprintf(stderr, "Missing interface argument\n");
+        print_usage(argv[0]);
+        return EXIT_FAILURE;
+    }
+   
+    if (num_frames <= 0) {
+        fprintf(stderr, "num_frames must be > 0\n");
         return EXIT_FAILURE;
     }
 
-    char *interface = argv[1];
-    int num_frames = atoi(argv[2]);
-    __u32 duration = (__u32)atoi(argv[3]);
-
-    if (num_frames <= 0) {
-        fprintf(stderr, "num_frames must be > 0\n");
+    if (duration <= 0 || duration > 360) {
+        fprintf(stderr, "Duration outside of valid range of (0,360]\n");
+        print_usage(argv[0]);
         return EXIT_FAILURE;
     }
 
@@ -104,12 +163,12 @@ int main(int argc, char *argv[]){
     }
 
     int channels = get_if_num_channels(interface);
-    fprintf(stdout, "Interface %s has %d combined channels\n", interface, channels);
+    printf("Interface %s has %d combined channels\n", interface, channels);
     
     /** Main function call **/
-    int ret = run_af_xdp(interface,  ifidx, flags, channels, obj, num_frames, duration);
+    int ret = run_af_xdp(interface,  ifidx, flags, channels, obj, num_frames, (__u32)duration);
     if (ret == EXIT_FAILURE)
-        fprintf(stdout, "ERROR: Failure at main function");
+        fprintf(stderr, "ERROR: Failure at main function\n");
 
     bpf_xdp_detach(ifidx, flags, NULL);
     bpf_object__close(obj);

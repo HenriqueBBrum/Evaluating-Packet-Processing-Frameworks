@@ -3,8 +3,11 @@
 #include <string.h>
 #include <signal.h>
 #include <stdbool.h>
-
+#include <time.h>
+#include<unistd.h>
 #include <getopt.h>
+
+
 #include <rte_eal.h>
 #include <rte_errno.h>
 #include <rte_ethdev.h>
@@ -12,7 +15,7 @@
 
 #define MBUF_CACHE_SIZE 512
 #define BURST_SIZE 32
-#define RX_RING_SIZE 1024
+
 #define MAX_LCORES 48
 
 struct lcore_args {
@@ -22,6 +25,7 @@ struct lcore_args {
     uint64_t total_pkts;
     uint64_t total_bytes;
     uint16_t lcore_id;
+    uint32_t duration;
 };
 
 
@@ -42,22 +46,26 @@ void print_usage(const char *prog_name){
     printf("  -h, --help              Display this help message\n");
     printf("  -v, --verbose           Enable verbose output\n");
     printf("  -a, --pci_address       Specify the pci address of the desired interface\n");
-    printf("  -p, --packet_slots       Specify the number of packet slots in the memory pool\n");
-    printf("\nExample: %s --lcores=0,1 -n 4 -- -v -a 0000:01:00.0 -p 1024 -t 2\n", prog_name);
+    printf("  -r, --ring_size         Specify the rx ring buffer (queue) size of the desired interface\n");
+    printf("  -n, --num_frames        Specify the number of packet slots in the memory pool\n");
+    printf("  -d, --duration          Experiments duration\n");
+    printf("\nExample: %s --lcores=0,1 -n 4 -- -v -a 0000:01:00.0 -r 1024 -n 8192 -d 30\n", prog_name);
 }
 
-int parse_app_args(int argc, char **argv, char **pci_address, int *verbose, int *packet_slots){
+int parse_app_args(int argc, char **argv, char **pci_address, int *verbose, int *ring_size, int *num_frames, int *duration){
     int opt;
     struct option long_options[] = {
         {"help",    no_argument,       0, 'h'},
         {"verbose", no_argument,       0, 'v'},
         {"pci_address",    required_argument, 0, 'a'},
-        {"packet_slots",    required_argument, 0, 'p'},
+        {"ring_size",    required_argument, 0, 'r'},
+        {"num_frames",    required_argument, 0, 'n'},
+        {"duration",    required_argument, 0, 'd'},
         {0, 0, 0, 0}
     };
 
     int option_index = 0;
-    while ((opt = getopt_long(argc, argv, "hvap:", long_options, &option_index)) != -1) {
+    while ((opt = getopt_long(argc, argv, "hva:r:n:d:", long_options, &option_index)) != -1) {
         switch (opt) {
             case 'h':
                 print_usage(argv[0]);
@@ -68,8 +76,14 @@ int parse_app_args(int argc, char **argv, char **pci_address, int *verbose, int 
             case 'a':
                 *pci_address = optarg;
                 break;
-            case 'p':
-                *packet_slots = atoi(optarg);
+            case 'r':
+                *ring_size = atoi(optarg);
+                break;
+            case 'n':
+                *num_frames = atoi(optarg);
+                break;
+            case 'd':
+                *duration = atoi(optarg);
                 break;
             case '?':
                 fprintf(stderr, "Unknown option\n");
@@ -94,11 +108,9 @@ int read_packets_lcore(void *arg){
 
     while (!exit_indicator) {
         rx_count = rte_eth_rx_burst(largs->port_id, largs->queue_id, rx_packets, BURST_SIZE);
-
         if (rx_count == 0) 
             continue;
 
-        // Packets received.
         for (uint16_t i = 0; i < rx_count; i++)
             largs->total_bytes += (uint64_t)rx_packets[i]->data_len;
 
@@ -109,6 +121,32 @@ int read_packets_lcore(void *arg){
     printf("Lcore %u: Exiting packet reading routine\n", lcore_id);
     return 0;
 }
+
+
+int validate_args(const char *pci_address, int ring_size, int num_frames, int duration) {
+    if (pci_address == NULL || strlen(pci_address) == 0) {
+        fprintf(stderr, "Invalid argument: pci_address must be provided with -a/--pci_address.\n");
+        return 0;
+    }
+
+    if (ring_size < 1024 || ring_size > 131072) {
+        fprintf(stderr, "Invalid argument: ring_size must be between 1024 and 131072 (inclusive).\n");
+        return 0;
+    }
+
+    if (num_frames < 1024 || num_frames > 131072) {
+        fprintf(stderr, "Invalid argument: num_frames must be between 1024 and 131072 (inclusive).\n");
+        return 0;
+    }
+
+    if (duration <= 0 || duration > 360) {
+        fprintf(stderr, "Invalid argument: duration must be between 1 and 360 seconds (inclusive).\n");
+        return 0;
+    }
+
+    return 1;
+}
+
 
 int main(int argc, char **argv){
     signal(SIGINT, handle_signal);
@@ -129,9 +167,16 @@ int main(int argc, char **argv){
 
     char *pci_address = NULL;
     int verbose = 0;
-    int packet_slots = 1024;
+    int ring_size = 1024, num_frames = 8192, duration = 10;
+
     if (argc > 0) 
-        parse_app_args(argc, argv, &pci_address, &verbose, &packet_slots);
+        parse_app_args(argc, argv, &pci_address, &verbose, &ring_size, &num_frames, &duration);
+
+    if (!validate_args(pci_address, ring_size, num_frames, duration)) {
+        print_usage("dpdk_pkt_capture");
+        rte_eal_cleanup();
+        return EXIT_FAILURE;
+    }
 
     // Detecting the logical cores (CPUs) ids passed to this DPDK application. 
     uint16_t worker_lcores[MAX_LCORES];
@@ -188,7 +233,7 @@ int main(int argc, char **argv){
         uint16_t lcore_id = worker_lcores[i];
         char pool_name[32];
         snprintf(pool_name, sizeof(pool_name), "mp_lcore_%u", lcore_id);
-        mempools[lcore_id] = rte_pktmbuf_pool_create(pool_name, packet_slots, MBUF_CACHE_SIZE, 0, RTE_MBUF_DEFAULT_BUF_SIZE, rte_socket_id());
+        mempools[lcore_id] = rte_pktmbuf_pool_create(pool_name, num_frames, MBUF_CACHE_SIZE, 0, RTE_MBUF_DEFAULT_BUF_SIZE, rte_socket_id());
         if (mempools[lcore_id] == NULL) {
             fprintf(stderr, "Unable to create mempool for lcore %u\n", lcore_id);
             rte_eal_cleanup();
@@ -216,19 +261,19 @@ int main(int argc, char **argv){
         uint16_t lcore_id = worker_lcores[i];
 
         lcore_args_array[i].port_id = port_id_to_use;
-        lcore_args_array[i].start_queue_id = i;  // Queue i for lcore i
-        lcore_args_array[i].num_queues = 1;       // One queue per lcore
+        lcore_args_array[i].queue_id = i;
         lcore_args_array[i].mempool = mempools[lcore_id];
         lcore_args_array[i].total_pkts = 0;
         lcore_args_array[i].total_bytes = 0;
         lcore_args_array[i].lcore_id = lcore_id;
+        lcore_args_array[i].duration = (uint32_t)duration;
     }
 
     const int16_t socket_id = rte_eth_dev_socket_id(port_id_to_use);
     // Configure the queue(s) of the port - each queue uses the mempool of its corresponding lcore
     for (uint16_t i = 0; i < num_worker_lcores; i++) {
         uint16_t lcore_id = worker_lcores[i];
-        return_val = rte_eth_rx_queue_setup(port_id_to_use, i, RX_RING_SIZE, socket_id, NULL, mempools[lcore_id]);
+        return_val = rte_eth_rx_queue_setup(port_id_to_use, i, ring_size, socket_id, NULL, mempools[lcore_id]);
         if (return_val < 0) {
             fprintf(stderr, "Unable to setup RX queue %u Port Id: %u Return code: %d\n", i, port_id_to_use, return_val);
             rte_eal_cleanup();
@@ -245,9 +290,9 @@ int main(int argc, char **argv){
 
     return_val = rte_eth_dev_start(port_id_to_use);
     if (return_val < 0) {
-        printf("Unable to start port Id: %u Return code: %d\n", port_id_to_use, return_val);
+        fprintf(stderr, "Unable to start port Id: %u Return code: %d\n", port_id_to_use, return_val);
         rte_eal_cleanup();
-        exit(1);
+        return EXIT_FAILURE;
     }
     
     printf("Port Id %u configuration successful. Launching packet processing on worker lcores...\n", port_id_to_use);
@@ -257,12 +302,23 @@ int main(int argc, char **argv){
         if (ret != 0) {
             fprintf(stderr, "Unable to launch packet processing on lcore %u\n", lcore_id);
             rte_eal_cleanup();
-            exit(1);
+            return EXIT_FAILURE;
         }
     }
-    
+
+    struct timespec start, current;
+    clock_gettime(CLOCK_MONOTONIC, &start);
+    while (1 && exit_indicator == 0) {
+        clock_gettime(CLOCK_MONOTONIC, &current);
+        if ((current.tv_sec - start.tv_sec) >= duration) {
+            exit_indicator = 1;
+            break;
+        }
+        sleep(1);
+    }
+
     // Wait for all lcores to complete
-    printf("Waiting for all worker lcores to complete...\n");
+    printf("%ld seconds elapsed, sending stop signal and waiting for all worker lcores to complete...\n", (current.tv_sec - start.tv_sec));
     rte_eal_mp_wait_lcore();
 
     uint64_t total_packets = 0;
@@ -273,11 +329,11 @@ int main(int argc, char **argv){
         printf("Lcore %d: Total packets: %lu, total bytes: %lu\n", worker_lcores[i], lcore_args_array[i].total_pkts, lcore_args_array[i].total_bytes);
     }
 
-    fprintf(stdout, "Total packets received: %lu, total bytes %lu\n", total_packets, total_bytes);
-
+    printf("Total packets received: %lu, total bytes %lu\n", total_packets, total_bytes);
     printf("Exiting DPDK program ...\n");
     rte_eth_dev_stop(port_id_to_use);
     rte_eth_dev_close(port_id_to_use);
     rte_eal_cleanup();
-    return 0;
+
+    return EXIT_SUCCESS;
 }

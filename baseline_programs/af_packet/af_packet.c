@@ -19,7 +19,6 @@
 #include <time.h>
 #include <sched.h>
 
-
 #define MAX_CORES 48;
 
 
@@ -37,9 +36,8 @@ typedef struct ThreadCtx_ {
 static volatile sig_atomic_t exit_indicator = 0;
 static void handle_signal(int sig){
     exit_indicator = 1;
-    printf("Signal received, stopping all threads...\n");
+    fprintf(stdout, "Signal received, stopping all threads...\n");
 }
-
 
 static int get_ifindex(int fd, const char *ifname, int verbose){
     struct ifreq ifr;
@@ -179,11 +177,11 @@ static void *af_packet_thread(void *arg){
         block_idx = (block_idx + 1U) % req.tp_block_nr;
     }
 
-    printf("Packets processed: %llu bytes processed: %llu\n", (unsigned long long)packets, (unsigned long long)bytes);
+    fprintf(stdout, "Packets processed: %llu bytes processed: %llu\n", (unsigned long long)packets, (unsigned long long)bytes);
     struct tpacket_stats kstats;
     socklen_t len = sizeof(kstats);
     if (getsockopt(fd, SOL_PACKET, PACKET_STATISTICS, (void *)&kstats, &len) > -1)
-        printf("thread %d (%s): kernel packets=%llu kernel dropped=%llu\n",
+        fprintf(stdout, "thread %d (%s): kernel packets=%llu kernel dropped=%llu\n",
                 ctx->thread_id,
                 ctx->ifname,
                 (unsigned long long)kstats.tp_packets,
@@ -280,7 +278,7 @@ int main(int argc, char *argv[]){
         CPU_SET(cpu_to_bind, &current_cpu_set);
 
         if (pthread_attr_setaffinity_np(&thread_attrs, sizeof(cpu_set_t), &current_cpu_set) != 0)
-            printf("Can't set CPU affinity for thread\n");
+            fprintf(stdout, "Can't set CPU affinity for thread\n");
 
         if (pthread_create(&threads[i], &thread_attrs, af_packet_thread, &ctxs[i]) != 0) {
             fprintf(stderr, "failed to create thread %u\n", i);
@@ -304,7 +302,7 @@ int main(int argc, char *argv[]){
 
     // Stop all threads
     if (exit_indicator == 0) 
-        printf("%d seconds elapsed. Stopping all threads ...\n", duration);
+        fprintf(stdout, "%d seconds elapsed. Stopping all threads ...\n", duration);
   
     exit_indicator = 1;
 
@@ -323,7 +321,7 @@ int main(int argc, char *argv[]){
     for (uint8_t i = 0; i < num_threads; i++)
         free(ctxs[i].kstats);
 
-    printf("Total packets: %llu\n", (unsigned long long)total_packets);
-    printf("Total drops: %llu\n", (unsigned long long)total_drops);
+    fprintf(stdout, "Total packets: %llu\n", (unsigned long long)total_packets);
+    fprintf(stdout, "Total drops: %llu\n", (unsigned long long)total_drops);
     return 0;
 }

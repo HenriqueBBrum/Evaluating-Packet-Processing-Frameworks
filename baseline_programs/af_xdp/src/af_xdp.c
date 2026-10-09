@@ -2,7 +2,6 @@
 
 #include <assert.h>
 #include <errno.h>
-#include <getopt.h>
 #include <locale.h>
 #include <poll.h>
 #include <pthread.h>
@@ -41,7 +40,7 @@
 static volatile sig_atomic_t exit_indicator = 0;
 static void handle_signal(int sig){
     exit_indicator = 1;
-    printf("Signal received, stopping all threads...\n");
+     printf("Signal received, stopping all threads...\n");
 }
 
 
@@ -139,7 +138,7 @@ void *PollXSK(void *data){
     pfd.events = POLLIN;
 
     #ifdef DEBUG
-        fprintf(stdout, "[XSK] Starting to poll for FD %d...\n", pfd.fd);
+        printf("[XSK] Starting to poll for FD %d...\n", pfd.fd);
     #endif
 
     while (!ti->done){
@@ -154,13 +153,13 @@ void *PollXSK(void *data){
             continue;
 
         #ifdef DEBUG
-            fprintf(stdout, "[XSK] Received %d packets from AF_XDP socket from queue ID %d\n", rcvd, ti->id);
+            printf("[XSK] Received %d packets from AF_XDP socket from queue ID %d\n", rcvd, ti->id);
         #endif
 
         int stockframes = xsk_prod_nb_free(&ti->xsk_info->umem_info->fq, ti->xsk_info->umem_frame_free);
         if (stockframes > 0){
             #ifdef DEBUG
-                fprintf(stdout, "[XSK] We have %d stock frames available to refill.\n", stockframes);
+                printf("[XSK] We have %d stock frames available to refill.\n", stockframes);
             #endif
 
             ret = xsk_ring_prod__reserve(&ti->xsk_info->umem_info->fq, stockframes, &idx_fq);
@@ -174,7 +173,7 @@ void *PollXSK(void *data){
             xsk_ring_prod__submit(&ti->xsk_info->umem_info->fq, ret);
             
             #ifdef DEBUG
-                fprintf(stdout, "[XSK] Refilled fill queue with %d frames.\n", ret);
+                printf("[XSK] Refilled fill queue with %d frames.\n", ret);
             #endif
         }
 
@@ -184,7 +183,7 @@ void *PollXSK(void *data){
 
             void *pckt = xsk_umem__get_data(ti->xsk_info->umem_info->buffer, addr);
             if (!pckt){
-                fprintf(stdout, "[XSK] Packet not true; freeing frame.\n");
+                printf("[XSK] Packet not true; freeing frame.\n");
                 xsk_free_umem_frame(ti->xsk_info, addr, ti->num_frames);
                 continue;
             }
@@ -198,7 +197,7 @@ void *PollXSK(void *data){
     }
 
     #ifdef DEBUG
-        fprintf(stdout, "[XSK] Exiting poll...\n");
+        printf("[XSK] Exiting poll...\n");
     #endif
 
     pthread_exit(NULL);
@@ -235,7 +234,7 @@ int run_af_xdp(const char *dev, int ifidx, __u32 xdpflags, __u32 num_threads, st
     struct thread_info tinfo[num_threads];
     pthread_t threads[num_threads];
 
-    fprintf(stdout, "Creating AF_XDP sockets. Dev => %s. Index => %d. Queues => %d.\n", dev, ifidx, num_threads);
+    printf("Creating AF_XDP sockets. Dev => %s. Index => %d. Queues => %d.\n", dev, ifidx, num_threads);
    
     __u64 packet_buffer_size = num_frames * FRAME_SIZE;
     __u8 sk_created = 0;
@@ -254,7 +253,6 @@ int run_af_xdp(const char *dev, int ifidx, __u32 xdpflags, __u32 num_threads, st
             free(packet_buffer);
             continue;
         }
-
 
         // Open and configure the AF_XDP (xsk) socket.
         struct xsk_socket_info *xsk_socket = xsk_configure_socket(umem, i, (const char *)dev, xsks_fd, xdpflags, num_frames);
@@ -276,8 +274,7 @@ int run_af_xdp(const char *dev, int ifidx, __u32 xdpflags, __u32 num_threads, st
         pthread_create(&threads[i], NULL, PollXSK, (void *)&tinfo[i]);
         sk_created++;
     }
-
-    fprintf(stdout, "Created %u XSK sockets with dedicated UMEM totaling %llu bytes\n", sk_created, packet_buffer_size*sk_created);
+    printf("Created %u XSK sockets with dedicated UMEM totaling %llu bytes\n", sk_created, packet_buffer_size*sk_created);
 
     __u64 timelap = 0;  
     while (!exit_indicator){
@@ -299,7 +296,7 @@ int run_af_xdp(const char *dev, int ifidx, __u32 xdpflags, __u32 num_threads, st
         pthread_join(threads[i], NULL);
         total_packets += tinfo[i].packets;
         total_bytes += tinfo[i].bytes;
-        fprintf(stdout, "Thread %d: Packets = %llu | Bytes = %llu\n", i, tinfo[i].packets, tinfo[i].bytes);
+        printf("Thread %d: Packets = %llu | Bytes = %llu\n", i, tinfo[i].packets, tinfo[i].bytes);
 
         xsk_socket__delete(tinfo[i].xsk_info->xsk);
         free(tinfo[i].xsk_info->umem_info->buffer);
@@ -319,10 +316,10 @@ int run_af_xdp(const char *dev, int ifidx, __u32 xdpflags, __u32 num_threads, st
     if (total_bytes > 0 && timelap > 0)
         avgbps = total_bytes / timelap;
 
-    fprintf(stdout, "\nFinal Results:\n");
-    fprintf(stdout, "Total packets: %llu | Avg PPS: %llu\n", total_packets, avgpps);
-    fprintf(stdout, "Total bytes: %llu | Avg BPS: %llu\n", total_bytes, avgbps);
-    fprintf(stdout, "Duration: %llu seconds | Threads: %d\n", timelap, num_threads);
+    printf("\nFinal Results:\n");
+    printf("Total packets: %llu | Avg PPS: %llu\n", total_packets, avgpps);
+    printf("Total bytes: %llu | Avg BPS: %llu\n", total_bytes, avgbps);
+    printf("Duration: %llu seconds | Threads: %d\n", timelap, num_threads);
 
     return EXIT_SUCCESS;
 }
