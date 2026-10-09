@@ -53,9 +53,8 @@ tx_ip="10.231.0.101" # Replace with the actual IP address of the traffic generat
 trex_folder="/opt/trex/v3.08/" # Defaul installation path
 trex_experiments_folder="~/packet_capture/" # Crerate a trex_code folder in the home directory of the tx_host and copy the pcaps and scripts to it
 
-# RX NIC configuration
-rx_nic_cores="9-47"
-rx_nic_cores_num=39
+# Configuration
+rx_ring_size=8192
 
 # Experiments configuration
 time_to_monitor=20
@@ -64,14 +63,15 @@ time_to_run=10
 # PF_RING
 pf_ring_module_folder="/lib/modules/6.8.0-1047-nvidia/kernel/net/pf_ring/" # Replace with the actual path to the PF_RING module folder
 
-threads=("1") # ("1" "2" "4" "8")
+threads=("1 2 4 8 16")
 traffic_profile=("one_flow")
 strategy=("AF_PACKET" "AF_XDP" "vPF_RING" "zcPF_RING" "DPDK" "NETMAP")
 
+af_packet_configs=()
+
 sudo ethtool -K $interface rxhash on ntuple on
-# sudo ethtool -A $interface rx off
 sudo ethtool -C $interface adaptive-rx off adaptive-tx off rx-usecs 0 rx-frames 0
-sudo ethtool -G $interface rx 8192
+sudo ethtool -G $interface rx $rx_ring_size
 sudo ethtool -X $interface hfunc toeplitz
 sudo ip link set $interface xdp off
 sudo ip link set $interface promisc on
@@ -98,8 +98,10 @@ for thread in "${threads[@]}"; do
             echo "  Running $strat baseline program with $thread threads on interface $interface"
 
             if [ "$strat" == "DPDK" ]; then
+                cd "baseline_programs/dpdk/"
                 sleep 5
             elif [ "$strat" == "AF_XDP" ]; then
+                cd "baseline_programs/dpdk/"
                 sleep 5
             elif [ "$strat" == "vPF_RING" ]; then
                 cd "$pf_ring_module_folder"
