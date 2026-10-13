@@ -5,11 +5,14 @@
 #include <xdp/xsk.h>
 #include <pthread.h>
 
-struct bpf_object;
+#define MAX_CORES 48
 
 #define FRAME_SIZE XSK_UMEM__DEFAULT_FRAME_SIZE
-#define RX_BATCH_SIZE 64
+#define RX_BATCH_SIZE 32
 #define INVALID_UMEM_FRAME UINT64_MAX
+
+struct bpf_object;
+
 
 struct xsk_umem_info {
     struct xsk_ring_prod fq;
@@ -51,4 +54,4 @@ struct stats{
     __u64 bytes;
 };
 
-int run_af_xdp(const char *dev, int ifidx, __u32 xdpflags, __u32 threads, struct bpf_object *obj, __u64 num_frames, __u32 duration);
+int run_af_xdp(__u32 xdpflags, struct bpf_object *obj, __u32 num_threads, int start_thread, const char *dev, __u64 num_frames, __u32 duration);

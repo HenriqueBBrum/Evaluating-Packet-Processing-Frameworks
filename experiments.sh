@@ -160,7 +160,7 @@ for thread in "${threads[@]}"; do
                         make
                         monitored_process="af_xdp"
                         read -r af_xdp_queue_count <<< "$config"
-                        sudo ./build/af_xdp -i "$interface" -n "$af_xdp_queue_count" -d $time_to_monitor > "$output_folder_final/packet_counter.txt" &
+                        sudo ./build/af_xdp -s $start_thread -i "$interface" -n "$af_xdp_queue_count" -d $time_to_monitor > "$output_folder_final/packet_counter.txt" &
                     elif [ "$strat" == "vPF_RING" ]; then
                         cd "$pf_ring_module_folder"
                         monitored_process="pfcount_multichannel"

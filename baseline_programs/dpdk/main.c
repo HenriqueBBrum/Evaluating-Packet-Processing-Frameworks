@@ -172,7 +172,7 @@ int main(int argc, char **argv){
         parse_app_args(argc, argv, &pci_address, &verbose, &ring_size, &num_frames, &duration);
 
     if (!validate_args(pci_address, ring_size, num_frames, duration)) {
-        print_usage("dpdk_pkt_capture");
+        print_usage(argv[0]);
         rte_eal_cleanup();
         return EXIT_FAILURE;
     }
@@ -223,7 +223,7 @@ int main(int argc, char **argv){
     if (!port_found) {
         fprintf(stderr, "Desired port not detected in the system.\n");
         rte_eal_cleanup();
-        return 1;
+        return EXIT_FAILURE;
     }
 
     // Create memory pools - one per lcore

@@ -203,18 +203,7 @@ void *PollXSK(void *data){
     pthread_exit(NULL);
 }
 
-/**
- * Run AF_XDP program
- * 
- * @param dev The interface the XDP program exists on (string).
- * @param ifidx The interface the XDP program exists on (index number).
- * @param xdpflags The XDP attachment flags.
- * @param threads Number of threads to use.
- * @param obj The BPF object (to access xsks_map).
- * 
- * @return Returns 0 on success or 1 on failure.
-**/
-int run_af_xdp(const char *dev, int ifidx, __u32 xdpflags, __u32 num_threads, struct bpf_object *obj, __u64 num_frames, __u32 duration){
+int run_af_xdp(__u32 xdpflags, struct bpf_object *obj, __u32 num_threads, int start_thread, const char *dev, __u64 num_frames, __u32 duration){
     signal(SIGINT, handle_signal);
     signal(SIGTERM, handle_signal);
 
@@ -234,7 +223,7 @@ int run_af_xdp(const char *dev, int ifidx, __u32 xdpflags, __u32 num_threads, st
     struct thread_info tinfo[num_threads];
     pthread_t threads[num_threads];
 
-    printf("Creating AF_XDP sockets. Dev => %s. Index => %d. Queues => %d.\n", dev, ifidx, num_threads);
+    printf("Creating AF_XDP sockets. Dev => %s. Queues => %d.\n", dev, num_threads);
    
     __u64 packet_buffer_size = num_frames * FRAME_SIZE;
     __u8 sk_created = 0;
@@ -269,9 +258,26 @@ int run_af_xdp(const char *dev, int ifidx, __u32 xdpflags, __u32 num_threads, st
         tinfo[i].packets = 0;
         tinfo[i].bytes = 0;
         tinfo[i].done = 0;   
-        tinfo[i].num_frames = num_frames;    
+        tinfo[i].num_frames = num_frames;   
+        
+        pthread_attr_t thread_attrs;
+        pthread_attr_init(&thread_attrs);
 
-        pthread_create(&threads[i], NULL, PollXSK, (void *)&tinfo[i]);
+        cpu_set_t current_cpu_set;
+        int cpu_to_bind = (start_thread + i) % MAX_CORES;
+        CPU_ZERO(&current_cpu_set);
+        CPU_SET(cpu_to_bind, &current_cpu_set);
+
+        if (pthread_attr_setaffinity_np(&thread_attrs, sizeof(cpu_set_t), &current_cpu_set) != 0)
+            fprintf(stdout, "Can't set CPU affinity for thread\n");
+
+        if (pthread_create(&threads[i], &thread_attrs, PollXSK, (void *)&tinfo[i]) != 0) {
+            fprintf(stderr, "failed to create thread %u\n", i);
+            exit_indicator = 1;
+            break;
+        }
+
+        pthread_attr_destroy(&thread_attrs);
         sk_created++;
     }
     printf("Created %u XSK sockets with dedicated UMEM totaling %llu bytes\n", sk_created, packet_buffer_size*sk_created);
