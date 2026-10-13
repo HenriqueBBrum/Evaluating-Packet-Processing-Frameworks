@@ -97,32 +97,6 @@ int parse_app_args(int argc, char **argv, char **pci_address, int *verbose, int 
     return optind;
 }
 
-int read_packets_lcore(void *arg){
-    struct lcore_args *largs = (struct lcore_args *)arg;
-    uint16_t lcore_id = rte_lcore_id();
-    printf("Lcore %u: Starting packet reading routine on queue %u\n", 
-           lcore_id, largs->queue_id);
-    
-    struct rte_mbuf *rx_packets[BURST_SIZE];
-    uint16_t rx_count = 0;
-
-    while (!exit_indicator) {
-        rx_count = rte_eth_rx_burst(largs->port_id, largs->queue_id, rx_packets, BURST_SIZE);
-        if (rx_count == 0) 
-            continue;
-
-        for (uint16_t i = 0; i < rx_count; i++)
-            largs->total_bytes += (uint64_t)rx_packets[i]->data_len;
-
-        largs->total_pkts += (uint64_t)rx_count;
-        rte_pktmbuf_free_bulk(rx_packets, rx_count);
-    }
-    
-    printf("Lcore %u: Exiting packet reading routine\n", lcore_id);
-    return 0;
-}
-
-
 int validate_args(const char *pci_address, int ring_size, int num_frames, int duration) {
     if (pci_address == NULL || strlen(pci_address) == 0) {
         fprintf(stderr, "Invalid argument: pci_address must be provided with -a/--pci_address.\n");
@@ -146,6 +120,31 @@ int validate_args(const char *pci_address, int ring_size, int num_frames, int du
 
     return 1;
 }
+
+int read_packets_lcore(void *arg){
+    struct lcore_args *largs = (struct lcore_args *)arg;
+    uint16_t lcore_id = rte_lcore_id();
+    printf("Lcore %u: Starting packet reading routine on queue %u\n", lcore_id, largs->queue_id);
+    
+    struct rte_mbuf *rx_packets[BURST_SIZE];
+    uint16_t rx_count = 0;
+
+    while (!exit_indicator) {
+        rx_count = rte_eth_rx_burst(largs->port_id, largs->queue_id, rx_packets, BURST_SIZE);
+        if (rx_count == 0) 
+            continue;
+
+        for (uint16_t i = 0; i < rx_count; i++)
+            largs->total_bytes += (uint64_t)rx_packets[i]->data_len;
+
+        largs->total_pkts += (uint64_t)rx_count;
+        rte_pktmbuf_free_bulk(rx_packets, rx_count);
+    }
+    
+    printf("Lcore %u: Exiting packet reading routine\n", lcore_id);
+    return 0;
+}
+
 
 
 int main(int argc, char **argv){
@@ -265,8 +264,6 @@ int main(int argc, char **argv){
         lcore_args_array[i].mempool = mempools[lcore_id];
         lcore_args_array[i].total_pkts = 0;
         lcore_args_array[i].total_bytes = 0;
-        lcore_args_array[i].lcore_id = lcore_id;
-        lcore_args_array[i].duration = (uint32_t)duration;
     }
 
     const int16_t socket_id = rte_eth_dev_socket_id(port_id_to_use);
