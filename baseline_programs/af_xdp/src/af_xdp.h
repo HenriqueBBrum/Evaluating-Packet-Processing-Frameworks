@@ -6,9 +6,8 @@
 #include <pthread.h>
 
 #define MAX_CORES 48
-
-#define FRAME_SIZE XSK_UMEM__DEFAULT_FRAME_SIZE
 #define RX_BATCH_SIZE 32
+#define FRAME_SIZE XSK_UMEM__DEFAULT_FRAME_SIZE
 #define INVALID_UMEM_FRAME UINT64_MAX
 
 struct bpf_object;

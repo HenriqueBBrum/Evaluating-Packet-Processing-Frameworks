@@ -40,7 +40,7 @@ typedef struct {
 static volatile sig_atomic_t exit_indicator = 0;
 static void handle_signal(int sig){
     exit_indicator = 1;
-    fprintf(stdout, "Signal received, stopping all threads...\n");
+    printf("Signal received, stopping all threads...\n");
 }
 
 void print_usage(const char *prog_name){
@@ -50,9 +50,9 @@ void print_usage(const char *prog_name){
     printf("  -t, --num_threads       Number of worker threads (> 0 and <= 48)\n");
     printf("  -s, --start_thread       Starting thread index (0-based)\n");
     printf("  -i, --interface         Network interface name (e.g., eth0)\n");
-    printf("  -b, --block_size        Block size in bytes\n");
+    printf("  -b, --block_size        Block size in bytes (multiple of frame size)\n");
     printf("  -n, --block_nr          Number of blocks in RX ring (> 0)\n");
-    printf("  -d, --duration          Duration in seconds (0 for infinite)\n");
+    printf("  -d, --duration          Duration in seconds\n");
     printf("\nExamples:\n");
     printf("  %s -t 4 -i eth0 -b 65536 -n 128 --duration 10\n", prog_name);
 }
@@ -167,7 +167,7 @@ static int setup_socket(ThreadCtx *ctx, struct tpacket_req3 *req){
     req->tp_block_nr = ctx->block_nr;
     req->tp_frame_size = ctx->frame_size;
     req->tp_frame_nr = (ctx->block_size * ctx->block_nr) / ctx->frame_size;
-    req->tp_retire_blk_tov = 16; // Time-Out to Retire Block
+    req->tp_retire_blk_tov = 64; // Time-Out to Retire Block
 
     if (setsockopt(fd, SOL_PACKET, PACKET_RX_RING, req, sizeof(*req)) < 0) {
         fprintf(stderr, "thread %d: PACKET_RX_RING failed: %s\n", ctx->thread_id, strerror(errno));
@@ -204,38 +204,12 @@ static int setup_socket(ThreadCtx *ctx, struct tpacket_req3 *req){
         return -1;
     }
 
-
-    int busy_poll_usec = 50;
-    if (setsockopt(fd, SOL_SOCKET, SO_BUSY_POLL, &busy_poll_usec, sizeof(busy_poll_usec)) < 0) {
-        fprintf(stderr, "thread %d: SO_BUSY_POLL not enabled (%s)\n", ctx->thread_id, strerror(errno));
-    }
-
-#ifdef SO_BUSY_POLL_BUDGET
-    {
-        int busy_poll_budget = 64;
-        if (setsockopt(fd, SOL_SOCKET, SO_BUSY_POLL_BUDGET, &busy_poll_budget, sizeof(busy_poll_budget)) < 0) {
-            fprintf(stderr, "thread %d: SO_BUSY_POLL_BUDGET not enabled (%s)\n", ctx->thread_id, strerror(errno));
-        }
-    }
-#endif
-
-#ifdef SO_PREFER_BUSY_POLL
-    {
-        int prefer_busy_poll = 1;
-        if (setsockopt(fd, SOL_SOCKET, SO_PREFER_BUSY_POLL, &prefer_busy_poll, sizeof(prefer_busy_poll)) < 0) {
-            fprintf(stderr, "thread %d: SO_PREFER_BUSY_POLL not enabled (%s)\n", ctx->thread_id, strerror(errno));
-        }
-    }
-#endif
-
     return fd;
 }
 
 
 static void *af_packet_thread(void *arg){
     ThreadCtx *ctx = (ThreadCtx *)arg;
-
-    uint32_t block_idx = 0;
 
     struct tpacket_req3 req;
     int fd = setup_socket(ctx, &req);
@@ -259,6 +233,7 @@ static void *af_packet_thread(void *arg){
     pfd.events = POLLIN | POLLERR;
     pfd.revents = 0;
    
+    uint32_t block_idx = 0;
     while (!exit_indicator) {
         struct tpacket_block_desc *bd = (struct tpacket_block_desc *)(ring + ((size_t)block_idx * req.tp_block_size));
         if ((bd->hdr.bh1.block_status & TP_STATUS_USER) == 0) {
@@ -282,14 +257,12 @@ static void *af_packet_thread(void *arg){
         block_idx = (block_idx + 1) % req.tp_block_nr;
     }
 
-    fprintf(stdout, "thread %d: received packets=%llu received bytes=%llu\n", ctx->thread_id,
-            (unsigned long long)received_packets,
-            (unsigned long long)received_bytes);
+    printf("thread %d: received packets=%llu received bytes=%llu\n", ctx->thread_id, (unsigned long long)received_packets, (unsigned long long)received_bytes);
 
     struct tpacket_stats kstats;
     socklen_t len = sizeof(kstats);
     if (getsockopt(fd, SOL_PACKET, PACKET_STATISTICS, (void *)&kstats, &len) > -1)
-        fprintf(stdout, "thread %d: kernel packets=%llu kernel dropped=%llu\n",ctx->thread_id,
+        printf("thread %d: kernel packets=%llu kernel dropped=%llu\n",ctx->thread_id,
                 (unsigned long long)kstats.tp_packets,
                 (unsigned long long)kstats.tp_drops);
                 
@@ -334,7 +307,7 @@ int main(int argc, char *argv[]){
     pthread_t threads[num_threads];
     ThreadCtx ctxs[num_threads];
 
-    fprintf(stdout, "Starting packet capture on interface %s with %u threads, where each thread will "
+    printf("Starting packet capture on interface %s with %u threads, where each thread will "
         "use %u blocks of %u size totalling %u bytes for a duration of %u seconds\n", ifname, num_threads, block_nr, block_size,  block_size * block_nr * num_threads, duration);
 
     uint32_t fanout_id = (uint32_t)getpid() & 0xFFFFU;
@@ -363,7 +336,7 @@ int main(int argc, char *argv[]){
         CPU_SET(cpu_to_bind, &current_cpu_set);
 
         if (pthread_attr_setaffinity_np(&thread_attrs, sizeof(cpu_set_t), &current_cpu_set) != 0)
-            fprintf(stdout, "Can't set CPU affinity for thread\n");
+            printf("Can't set CPU affinity for thread\n");
 
         if (pthread_create(&threads[i], &thread_attrs, af_packet_thread, &ctxs[i]) != 0) {
             fprintf(stderr, "failed to create thread %u\n", i);
@@ -387,7 +360,7 @@ int main(int argc, char *argv[]){
 
     // Stop all threads
     if (exit_indicator == 0) 
-        fprintf(stdout, "%d seconds elapsed. Stopping all threads ...\n", duration);
+        printf("%d seconds elapsed. Stopping all threads ...\n", duration);
   
     exit_indicator = 1;
 
@@ -406,7 +379,7 @@ int main(int argc, char *argv[]){
     for (uint8_t i = 0; i < num_threads; i++)
         free(ctxs[i].kstats);
 
-    fprintf(stdout, "Total packets: %llu\n", (unsigned long long)total_packets);
-    fprintf(stdout, "Total drops: %llu\n", (unsigned long long)total_drops);
+    printf("Total packets: %llu\n", (unsigned long long)total_packets);
+    printf("Total drops: %llu\n", (unsigned long long)total_drops);
     return 0;
 }

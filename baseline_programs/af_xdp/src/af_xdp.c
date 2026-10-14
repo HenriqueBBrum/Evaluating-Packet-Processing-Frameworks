@@ -314,18 +314,12 @@ int run_af_xdp(__u32 xdpflags, struct bpf_object *obj, __u32 num_threads, int st
         free(tinfo[i].xsk_info);
     }
 
-    __u64 avgpps = 0;
-    if (total_packets > 0 && timelap > 0)
-        avgpps = total_packets / timelap;
-
-    __u64 avgbps = 0;
-    if (total_bytes > 0 && timelap > 0)
-        avgbps = total_bytes / timelap;
 
     printf("\nFinal Results:\n");
-    printf("Total packets: %llu | Avg PPS: %llu\n", total_packets, avgpps);
-    printf("Total bytes: %llu | Avg BPS: %llu\n", total_bytes, avgbps);
     printf("Duration: %llu seconds | Threads: %d\n", timelap, num_threads);
+    
+    printf("Total packets: %llu\n", total_packets);
+    printf("Total bytes: %llu\n", total_bytes);
 
     return EXIT_SUCCESS;
 }

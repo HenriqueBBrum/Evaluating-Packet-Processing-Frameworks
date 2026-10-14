@@ -33,19 +33,17 @@
 # Output folder
 # Loops (optional)
 
-if [ "$#" -ne 4 ]; then
-    echo "Usage: $0 <interface> <loops> <configuration_test> <output_folder>" 
+if [ "$#" -ne 3 ]; then
+    echo "Usage: $0 <interface> <loops> <output_folder>" 
     echo "  interface: network interface name to capture packets from"
     echo "  loops: number of loops to run (default: 1)"
-    echo "  configuration test (y or n)"
     echo "  output folder name: folder name within the source folder where the experiment results will be stored"
     exit 1
 fi
 
 interface=$1
 loops=${2:-1}
-configuration_test=$3
-output_folder_name=$4
+output_folder_name=$3
 pci_address=$(lshw -class network -businfo 2>/dev/null | awk -v nic="$interface" '$2==nic {gsub("pci@", "", $1); print $1; exit}')
 if [ -z "$pci_address" ]; then
     echo "Could not resolve PCIe address for interface '$interface' from: lshw -class network -businfo"
@@ -54,10 +52,10 @@ fi
 echo "Resolved PCIe address for $interface: $pci_address"
 
 source_folder="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
-output_folder="$source_folder/"output"/$output_folder_name"
+output_folder="$source_folder/../output/$output_folder_name"
 
 # Experiments configuration
-time_to_monitor=40
+time_to_monitor=35
 time_to_run=20
 start_thread=20
 
@@ -71,10 +69,10 @@ trex_experiments_folder="~/packet_capture/" # Crerate a trex_code folder in the 
 rx_ring_size=8192
 
 # AF-PACKET configurations
-af_packet_configs=("131072 256" "16384 32" "32768 64" "65536 128")
+af_packet_configs=("32768 256" "32768 2048" "131072 256") 
 
 # PF_RING configurations
-pf_ring_configs=(131072 65536)
+pf_ring_configs=(65536 131072 262144)
 pf_ring_module_folder="/lib/modules/6.8.0-1047-nvidia/kernel/net/pf_ring/" # Replace with the actual path to the PF_RING module folder
 
 # AF_XDP configurations
@@ -83,30 +81,23 @@ af_xdp_configs=("1024" "8192" "32768")
 # DPDK configurations
 dpdk_configs=("1024" "8192" "32768")
 
-
-threads=("1 2 4 8 16")
-valid_answers=("y" "Y" "yes" "YES")
-if [[ " ${valid_answers[@]} " =~ " $configuration_test " ]]; then
-    threads=("1")
-    traffic_profile=("one_flow")
-    speeds=("10" "100" "1000")
-    packet_sizes=("1400") #("64" "512" "1400")
-    protocol=("udp" "tcp")
-    for speed in "${speeds[@]}"; do
-        for packet_size in "${packet_sizes[@]}"; do
-            for proto in "${protocol[@]}"; do
-                experiments_config+=("$speed $packet_size $proto")
-            done
+strategy=("AF_XDP") # "AF_PACKET"  "DPDK"  "vPF_RING" 
+threads=("1")
+traffic_profile=("one_flow")
+speeds=("1" "10" "100")
+packet_sizes=("1400"  "512" "64") 
+protocol=("udp" "tcp")
+for speed in "${speeds[@]}"; do
+    for packet_size in "${packet_sizes[@]}"; do
+        for proto in "${protocol[@]}"; do
+            experiments_config+=("$speed $packet_size $proto")
         done
     done
-fi
-
-strategy=("AF_PACKET") #   "AF_XDP"  "DPDK"  "vPF_RING" "AF_XDP" 
+done
 
 for thread in "${threads[@]}"; do
     for exp_config in "${experiments_config[@]}"; do
         read -r speed packet_size proto <<< "$exp_config"
-
         for strat in "${strategy[@]}"; do
             printf '%*s\n\n' "${COLUMNS:-$(tput cols)}" '' | tr ' ' '#'
             echo "Strategy: $strat"
@@ -130,17 +121,17 @@ for thread in "${threads[@]}"; do
                 sudo ethtool -X $interface hfunc toeplitz
                 sudo ip link set $interface xdp off
                 sudo ip link set $interface promisc on
-
-                sudo ethtool -L $interface combined $thread
-                thread_list="$start_thread-$((start_thread+$thread-1))"
-                sudo set_irq_affinity_cpulist.sh $thread_list $interface
             fi
+
+            sudo ethtool -L $interface combined $thread
+            thread_list="$start_thread-$((start_thread+$thread-1))"
+            sudo set_irq_affinity_cpulist.sh $thread_list $interface
 
             for config in "${configs[@]}"; do
                 config_label=$(echo "$config" | tr ' ' '_')
                 echo "Running $strat baseline program with $thread threads on interface $interface with $config frames"
                 for ((loop=1; loop<=loops; loop++)); do
-                    output_folder_final="$output_folder/"$thread"_threads/$strat/config_$config_label/loop_$loop"
+                    output_folder_final="$output_folder/"$thread"_threads/"$speed"Gbps_"$packet_size"bytes_"$proto"/$strat/config_$config_label/loop_$loop"
                     mkdir -p "$output_folder_final"
                     rm -f "$output_folder_final"/*
                     bash monitoring.sh "$interface" rx "$time_to_monitor" "$output_folder_final" &
@@ -150,47 +141,46 @@ for thread in "${threads[@]}"; do
                     echo "  Loop $loop of $loops"
 
                     if [ "$strat" == "DPDK" ]; then
-                        cd "baseline_programs/dpdk/"
-                        make
+                        cd "$source_folder/../baseline_programs/dpdk/" || exit 1
+                        make > "$output_folder_final/make.log" 2>&1
                         monitored_process="dpdk_pkt_capture"
                         read -r dpdk_num_frames <<< "$config"
-                        sudo ./build/dpdk_pkt_capture -l $dpdk_thread_list -- -a "$pci_address" -r 1024 -n $dpdk_num_frames -d $time_to_monitor > "$output_folder_final/packet_counter.txt" &
+                        sudo numactl -C $thread_list ./build/dpdk_pkt_capture -l $dpdk_thread_list -- -a "$pci_address" -r 1024 -n $dpdk_num_frames -d $time_to_monitor > "$output_folder_final/packet_counter.txt" 2>&1 &
                     elif [ "$strat" == "AF_XDP" ]; then
-                        cd "baseline_programs/af_xdp/"
-                        make
+                        cd "$source_folder/../baseline_programs/af_xdp/" || exit 1
+                        make > "$output_folder_final/make.log" 2>&1
                         monitored_process="af_xdp"
                         read -r af_xdp_queue_count <<< "$config"
-                        sudo ./build/af_xdp -s $start_thread -i "$interface" -n "$af_xdp_queue_count" -d $time_to_monitor > "$output_folder_final/packet_counter.txt" &
+                        sudo numactl -C $thread_list ./build/af_xdp -s $start_thread -i "$interface" -n "$af_xdp_queue_count" -d $time_to_monitor > "$output_folder_final/packet_counter.txt" 2>&1 &
                     elif [ "$strat" == "vPF_RING" ]; then
                         cd "$pf_ring_module_folder"
                         monitored_process="pfcount_multichannel"
                         sudo insmod pf_ring.ko min_num_slots="$config" enable_tx_capture=0
-                        sleep 5
-                        sudo pfcount_multichannel -i $interface > "$output_folder_final/packet_counter.txt" &
+                        sleep 3
+                        sudo numactl -C $thread_list pfcount_multichannel -i $interface > "$output_folder_final/packet_counter.txt" 2>&1 &
                     elif [ "$strat" == "AF_PACKET" ]; then
-                        cd "baseline_programs/af_packet/"
-                        make
+                        cd "$source_folder/../baseline_programs/af_packet/" || exit 1
+                        make > "$output_folder_final/make.log" 2>&1
                         monitored_process="af_packet"
                         read -r block_size block_nr <<< "$config"
-                        sudo numactl -C $thread_list ./build/af_packet -t $thread -s $start_thread -i "$interface" -b "$block_size" -n "$block_nr" -d $time_to_monitor > "$output_folder_final/packet_counter.txt" &
+                        sudo numactl -C $thread_list ./build/af_packet -t $thread -s $start_thread -i "$interface" -b "$block_size" -n "$block_nr" -d $time_to_monitor > "$output_folder_final/packet_counter.txt" 2>&1 &
                     fi
 
                     packet_capture_pid=$!
+                    pidstat_pid=""
                     if [ -n "$monitored_process" ]; then
-                        sudo pidstat -C "$monitored_process" -t 1 > "$output_folder_final/pidstat.log" 2>&1 &
+                        monitored_process_pidstat="${monitored_process:0:15}"
+                        sudo pidstat -C "$monitored_process_pidstat" -t 1 > "$output_folder_final/pidstat.log" 2>&1 &
                         pidstat_pid=$!
                     fi
-                    sleep 5
 
                     ssh $tx_host@$tx_ip "mkdir -p $trex_experiments_folder/out/"
                     ssh $tx_host@$tx_ip "rm -f $trex_experiments_folder/out/*"
                     ssh $tx_host@$tx_ip "cd $trex_folder && sudo ./t-rex-64 -i" > "$output_folder_final"/trex_server.log 2>&1 &
-                    sleep 5
+                    sleep 3
                     
-                    if [[ " ${valid_answers[@]} " =~ " $configuration_test " ]]; then
-                        ssh $tx_host@$tx_ip "source ~/trex_venv/bin/activate && python3 $trex_experiments_folder/stl/one_flow.py -d $time_to_run --log_file $trex_experiments_folder/out/trex.log -r $speed --pkt_size $packet_size --protocol $proto"
-                        sleep 2
-                    fi
+                    ssh $tx_host@$tx_ip "source ~/trex_venv/bin/activate && python3 $trex_experiments_folder/stl/one_flow.py -d $time_to_run --log_file $trex_experiments_folder/out/trex.log -r $speed --pkt_size $packet_size --protocol $proto"
+                    sleep 2
                     
                     if [[ "$strat" == "vPF_RING" ]]; then
                         cp /proc/net/pf_ring/*$interface* "$output_folder_final/"
@@ -214,11 +204,9 @@ for thread in "${threads[@]}"; do
                     ssh $tx_host@$tx_ip "sudo pkill -f t-rex-64"
                     scp $tx_host@$tx_ip:"$trex_experiments_folder/out/*" "$output_folder_final"
                     cd $source_folder
-                    exit
                 done
                 printf '%*s\n\n' "${COLUMNS:-$(tput cols)}" '' | tr ' ' '-'
             done
         done
-        exit
     done
 done

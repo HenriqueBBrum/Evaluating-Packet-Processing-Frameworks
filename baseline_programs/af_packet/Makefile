@@ -1,7 +1,6 @@
 CC = gcc
 CFLAGS = -O2 -Wall -Wextra -D_GNU_SOURCE
 
-
 BUILDDIR = build
 
 MAIN = af_packet.c

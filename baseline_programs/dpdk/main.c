@@ -14,7 +14,8 @@
 #include <rte_mbuf.h>
 
 #define MBUF_CACHE_SIZE 512
-#define BURST_SIZE 32
+#define RX_BATCH_SIZE 32
+#define RX_RING_SIZE 1024
 
 #define MAX_LCORES 48
 
@@ -126,11 +127,11 @@ int read_packets_lcore(void *arg){
     uint16_t lcore_id = rte_lcore_id();
     printf("Lcore %u: Starting packet reading routine on queue %u\n", lcore_id, largs->queue_id);
     
-    struct rte_mbuf *rx_packets[BURST_SIZE];
+    struct rte_mbuf *rx_packets[RX_BATCH_SIZE];
     uint16_t rx_count = 0;
 
     while (!exit_indicator) {
-        rx_count = rte_eth_rx_burst(largs->port_id, largs->queue_id, rx_packets, BURST_SIZE);
+        rx_count = rte_eth_rx_burst(largs->port_id, largs->queue_id, rx_packets, RX_BATCH_SIZE);
         if (rx_count == 0) 
             continue;
 
@@ -244,7 +245,15 @@ int main(int argc, char **argv){
     const uint16_t tx_queues = 1; // One TX queue for the port, or an error occurs
     const uint16_t rx_queues = num_worker_lcores;
     struct rte_eth_conf port_conf = {
-        .rxmode = {.mq_mode = RTE_ETH_MQ_RX_NONE},
+        .rxmode = {
+            .mq_mode = RTE_ETH_MQ_RX_RSS, // Enable Multi-Queue RSS
+        },
+        .rx_adv_conf = {
+            .rss_conf = {
+                .rss_key = NULL,          // Use the default NIC hash key
+                .rss_hf = RTE_ETH_RSS_IP | RTE_ETH_RSS_UDP | RTE_ETH_RSS_TCP, // Hash fields
+            },
+        },
         .txmode = {.mq_mode = RTE_ETH_MQ_TX_NONE}
     };
 
@@ -270,7 +279,7 @@ int main(int argc, char **argv){
     // Configure the queue(s) of the port - each queue uses the mempool of its corresponding lcore
     for (uint16_t i = 0; i < num_worker_lcores; i++) {
         uint16_t lcore_id = worker_lcores[i];
-        return_val = rte_eth_rx_queue_setup(port_id_to_use, i, ring_size, socket_id, NULL, mempools[lcore_id]);
+        return_val = rte_eth_rx_queue_setup(port_id_to_use, i, RX_RING_SIZE, socket_id, NULL, mempools[lcore_id]);
         if (return_val < 0) {
             fprintf(stderr, "Unable to setup RX queue %u Port Id: %u Return code: %d\n", i, port_id_to_use, return_val);
             rte_eal_cleanup();
@@ -292,7 +301,7 @@ int main(int argc, char **argv){
         return EXIT_FAILURE;
     }
     
-    printf("Port Id %u configuration successful. Launching packet processing on worker lcores...\n", port_id_to_use);
+    printf("\nPort Id %u configuration successful. Launching packet processing on worker lcores...\n", port_id_to_use);
     for (int i = 0; i < num_worker_lcores; i++) {
         uint16_t lcore_id = worker_lcores[i];
         int ret = rte_eal_remote_launch(read_packets_lcore, &lcore_args_array[i], lcore_id);
@@ -323,11 +332,12 @@ int main(int argc, char **argv){
     for (int i = 0; i < num_worker_lcores; i++) {
         total_packets += lcore_args_array[i].total_pkts;
         total_bytes += lcore_args_array[i].total_bytes;
-        printf("Lcore %d: Total packets: %lu, total bytes: %lu\n", worker_lcores[i], lcore_args_array[i].total_pkts, lcore_args_array[i].total_bytes);
+        printf("Lcore %d: Packets: %lu, Bytes: %lu\n", worker_lcores[i], lcore_args_array[i].total_pkts, lcore_args_array[i].total_bytes);
     }
 
-    printf("Total packets received: %lu, total bytes %lu\n", total_packets, total_bytes);
-    printf("Exiting DPDK program ...\n");
+    printf("Total packets: %lu\n", total_packets);
+    printf("Total bytes: %lu\n", total_bytes);
+    
     rte_eth_dev_stop(port_id_to_use);
     rte_eth_dev_close(port_id_to_use);
     rte_eal_cleanup();
