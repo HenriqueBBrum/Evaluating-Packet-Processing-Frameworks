@@ -6,12 +6,10 @@
 #include <pthread.h>
 
 #define MAX_CORES 48
-#define RX_BATCH_SIZE 32
+#define RX_BATCH_SIZE 64
 #define FRAME_SIZE XSK_UMEM__DEFAULT_FRAME_SIZE
-#define INVALID_UMEM_FRAME UINT64_MAX
 
 struct bpf_object;
-
 
 struct xsk_umem_info {
     struct xsk_ring_prod fq;
@@ -34,9 +32,7 @@ struct xsk_socket_info{
     struct xsk_ring_prod tx;
     struct xsk_umem_info *umem_info;
     struct xsk_socket *xsk;
-
-    __u64 *umem_frame_addr;
-    __u32 umem_frame_free;
+    __u8 busy_poll_mode;
 };
 
 struct thread_info{
@@ -45,7 +41,6 @@ struct thread_info{
     __u64 packets;
     __u64 bytes;
     volatile int done;
-    __u64 num_frames;
 };
 
 struct stats{
@@ -53,4 +48,4 @@ struct stats{
     __u64 bytes;
 };
 
-int run_af_xdp(__u32 xdpflags, struct bpf_object *obj, __u32 num_threads, int start_thread, const char *dev, __u64 num_frames, __u32 duration);
+int run_af_xdp(__u32 xdpflags, struct bpf_object *obj, __u32 num_threads, int start_thread, const char *dev, __u64 num_frames, __u32 duration, __u8 busy_poll_mode);

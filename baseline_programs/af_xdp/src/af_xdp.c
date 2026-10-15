@@ -1,6 +1,5 @@
 // Based on https://github.com/gamemann/xdpstats-c/tree/master
 
-#include <assert.h>
 #include <errno.h>
 #include <locale.h>
 #include <poll.h>
@@ -13,6 +12,7 @@
 #include <unistd.h>
 #include <sys/resource.h>
 #include <getopt.h>
+#include <sys/socket.h>
 
 #include <arpa/inet.h>
 #include <net/if.h>
@@ -39,6 +39,7 @@
 
 static volatile sig_atomic_t exit_indicator = 0;
 static void handle_signal(int sig){
+    (void)sig;
     exit_indicator = 1;
      printf("Signal received, stopping all threads...\n");
 }
@@ -62,24 +63,7 @@ static struct xsk_umem_info *configure_xsk_umem(void *buffer, __u64 size){
     return umem_info;
 }
 
-// Allocate a UMEM frame from the pool of available frames for the given XSK socket info.
-static __u64 xsk_alloc_umem_frame(struct xsk_socket_info *xsk){
-    __u64 frame;
-    if (xsk->umem_frame_free == 0)
-        return INVALID_UMEM_FRAME;
-
-    frame = xsk->umem_frame_addr[--xsk->umem_frame_free];
-    xsk->umem_frame_addr[xsk->umem_frame_free] = INVALID_UMEM_FRAME;
-
-    return frame;
-}
-
-static void xsk_free_umem_frame(struct xsk_socket_info *xsk, __u64 frame, __u64 num_frames){
-    assert(xsk->umem_frame_free < num_frames);
-    xsk->umem_frame_addr[xsk->umem_frame_free++] = frame;
-}
-
-static struct xsk_socket_info *xsk_configure_socket(struct xsk_umem_info *umem_info, int rxqueue, const char *dev, int xsk_map_fd, __u32 flags, __u64 num_frames){
+static struct xsk_socket_info *xsk_configure_socket(struct xsk_umem_info *umem_info, int rxqueue, const char *dev, int xsk_map_fd, __u32 flags, __u64 num_frames, __u8 busy_poll_mode){
     struct xsk_socket_info *xsk_info = calloc(1, sizeof(*xsk_info));
     if (!xsk_info){
         fprintf(stderr, "xsk_info = NULL\n");
@@ -106,25 +90,52 @@ static struct xsk_socket_info *xsk_configure_socket(struct xsk_umem_info *umem_i
         return NULL;
     }
 
-    // Initialize umem frame allocation.
-    xsk_info->umem_frame_addr = calloc(num_frames, sizeof(*xsk_info->umem_frame_addr));
-    for (__u64 i = 0; i < num_frames; i++)
-        xsk_info->umem_frame_addr[i] = i * FRAME_SIZE;
+    xsk_info->busy_poll_mode = busy_poll_mode;
 
-    xsk_info->umem_frame_free = num_frames;
+    if (xsk_info->busy_poll_mode) {
+        printf("[XSK] Enabling busy poll mode for XSK socket...\n");
+        int opt = 1;
+        ret = setsockopt(xsk_socket__fd(xsk_info->xsk), SOL_SOCKET, SO_PREFER_BUSY_POLL, (void *)&opt,
+                         sizeof(opt));
+        if (ret) {
+            fprintf(stderr, "setsockopt(SO_PREFER_BUSY_POLL) failed\n");
+            return NULL;
+        }
 
-    // Stuff the receive path with buffers, we assume we have enough.
+        /* poll for 20us if socket not ready */
+        opt = 20;
+        ret = setsockopt(xsk_socket__fd(xsk_info->xsk), SOL_SOCKET, SO_BUSY_POLL, (void *)&opt,
+                         sizeof(opt));
+        if (ret) {
+            fprintf(stderr, "setsockopt(SO_BUSY_POLL) failed\n");
+            return NULL;
+        }
+
+        /* send/recv RX_BATCH_SIZE packets at most */
+        opt = RX_BATCH_SIZE;
+        ret = setsockopt(xsk_socket__fd(xsk_info->xsk), SOL_SOCKET, SO_BUSY_POLL_BUDGET, (void *)&opt,
+                         sizeof(opt));
+        if (ret) {
+            fprintf(stderr, "setsockopt(SO_BUSY_POLL_BUDGET) failed\n");
+            return NULL;
+        }
+    }
+
+    // Stuff the receive path with as many buffers as we actually have.
     __u32 idx;
-    ret = xsk_ring_prod__reserve(&xsk_info->umem_info->fq, XSK_RING_PROD__DEFAULT_NUM_DESCS, &idx);
-    if (ret != XSK_RING_PROD__DEFAULT_NUM_DESCS){
-        fprintf(stderr, "ret != XSK_RING_PROD__DEFAULT_NUM_DESCS :: Error.\n");
+    __u32 frames_to_fill = num_frames < XSK_RING_PROD__DEFAULT_NUM_DESCS ? (__u32)num_frames
+                                                                          : XSK_RING_PROD__DEFAULT_NUM_DESCS;
+
+    ret = xsk_ring_prod__reserve(&xsk_info->umem_info->fq, frames_to_fill, &idx);
+    if (ret != (int)frames_to_fill){
+        fprintf(stderr, "ret != frames_to_fill :: Error (ret=%d expected=%u).\n", ret, frames_to_fill);
         return NULL;
     }
 
-    for (int i = 0; i < XSK_RING_PROD__DEFAULT_NUM_DESCS; i++)
-        *xsk_ring_prod__fill_addr(&xsk_info->umem_info->fq, idx++) = xsk_alloc_umem_frame(xsk_info);
+    for (__u32 i = 0; i < frames_to_fill; i++)
+        *xsk_ring_prod__fill_addr(&xsk_info->umem_info->fq, idx++) = (__u64)i * FRAME_SIZE;
 
-    xsk_ring_prod__submit(&xsk_info->umem_info->fq, XSK_RING_PROD__DEFAULT_NUM_DESCS);
+    xsk_ring_prod__submit(&xsk_info->umem_info->fq, frames_to_fill);
 
     return xsk_info;
 }
@@ -132,67 +143,73 @@ static struct xsk_socket_info *xsk_configure_socket(struct xsk_umem_info *umem_i
 void *PollXSK(void *data){
     struct thread_info *ti = (struct thread_info *)data;
 
+    int ret;
+    int fd = xsk_socket__fd(ti->xsk_info->xsk);
     struct pollfd pfd;
-    int ret, nfds = 1;
-    pfd.fd = xsk_socket__fd(ti->xsk_info->xsk);
+    int nfds = 1;
+
+    pfd.fd = fd;
     pfd.events = POLLIN;
 
     #ifdef DEBUG
-        printf("[XSK] Starting to poll for FD %d...\n", pfd.fd);
+        printf("[XSK] Starting busy-poll loop for FD %d...\n", fd);
     #endif
 
+
     while (!ti->done){
-        ret = poll(&pfd, nfds, 0);
-        if (ret != 1)
-            continue;
+        if (!ti->xsk_info->busy_poll_mode) {
+            ret = poll(&pfd, nfds, 100);
+            if (ret <= 0)
+                continue;
+        }
 
         __u32 idx_rx, idx_fq = 0;
-        // Reads RX_BATCH_SIZE packets
         __u32 rcvd = xsk_ring_cons__peek(&ti->xsk_info->rx, RX_BATCH_SIZE, &idx_rx);
-        if (!rcvd)
+        if (!rcvd){
+            if (ti->xsk_info->busy_poll_mode || xsk_ring_prod__needs_wakeup(&ti->xsk_info->umem_info->fq)) {
+                ret = recvfrom(fd, NULL, 0, MSG_DONTWAIT, NULL, NULL);
+                if (ret == -1 && errno != EAGAIN && errno != EBUSY) 
+                    fprintf(stderr, "recvfrom() failed: %s\n", strerror(errno));
+            }
             continue;
+        }
 
         #ifdef DEBUG
             printf("[XSK] Received %d packets from AF_XDP socket from queue ID %d\n", rcvd, ti->id);
         #endif
 
-        int stockframes = xsk_prod_nb_free(&ti->xsk_info->umem_info->fq, ti->xsk_info->umem_frame_free);
-        if (stockframes > 0){
-            #ifdef DEBUG
-                printf("[XSK] We have %d stock frames available to refill.\n", stockframes);
-            #endif
+        int res = xsk_ring_prod__reserve(&ti->xsk_info->umem_info->fq, rcvd, &idx_fq);
+        while (res != (int)rcvd) {
+            if (ti->xsk_info->busy_poll_mode || xsk_ring_prod__needs_wakeup(&ti->xsk_info->umem_info->fq)) {
+                ret = recvfrom(fd, NULL, 0, MSG_DONTWAIT, NULL, NULL);
+                if (ret == -1 && errno != EAGAIN && errno != EBUSY) 
+                    fprintf(stderr, "recvfrom() failed: %s\n", strerror(errno));
 
-            ret = xsk_ring_prod__reserve(&ti->xsk_info->umem_info->fq, stockframes, &idx_fq);
-            while (ret != stockframes)
-			    ret = xsk_ring_prod__reserve(&ti->xsk_info->umem_info->fq, stockframes, &idx_fq);
+                if (ret < 0) 
+                    continue;
+            }
 
-            // Only fill what we successfully reserved
-            for (int j = 0; j < ret; j++) 
-                *xsk_ring_prod__fill_addr(&ti->xsk_info->umem_info->fq, idx_fq++) = xsk_alloc_umem_frame(ti->xsk_info);
-            
-            xsk_ring_prod__submit(&ti->xsk_info->umem_info->fq, ret);
-            
-            #ifdef DEBUG
-                printf("[XSK] Refilled fill queue with %d frames.\n", ret);
-            #endif
+            res = xsk_ring_prod__reserve(&ti->xsk_info->umem_info->fq, rcvd, &idx_fq);
         }
 
         for (__u32 j = 0; j < rcvd; j++){
             __u64 addr = xsk_ring_cons__rx_desc(&ti->xsk_info->rx, idx_rx)->addr;
             __u32 len = xsk_ring_cons__rx_desc(&ti->xsk_info->rx, idx_rx++)->len;
+            __u64 frame = xsk_umem__extract_addr(addr);
 
-            void *pckt = xsk_umem__get_data(ti->xsk_info->umem_info->buffer, addr);
+            void *pckt = xsk_umem__get_data(ti->xsk_info->umem_info->buffer, xsk_umem__add_offset_to_addr(addr));
             if (!pckt){
-                printf("[XSK] Packet not true; freeing frame.\n");
-                xsk_free_umem_frame(ti->xsk_info, addr, ti->num_frames);
+                printf("[XSK] Packet not true; dropping frame.\n");
+                *xsk_ring_prod__fill_addr(&ti->xsk_info->umem_info->fq, idx_fq++) = frame;
                 continue;
             }
 
             ti->packets++;
             ti->bytes += len;
-            
-            xsk_free_umem_frame(ti->xsk_info, addr, ti->num_frames);
+
+            *xsk_ring_prod__fill_addr(&ti->xsk_info->umem_info->fq, idx_fq++) = frame;
         }
+        xsk_ring_prod__submit(&ti->xsk_info->umem_info->fq, rcvd);
         xsk_ring_cons__release(&ti->xsk_info->rx, rcvd);
     }
 
@@ -203,7 +220,7 @@ void *PollXSK(void *data){
     pthread_exit(NULL);
 }
 
-int run_af_xdp(__u32 xdpflags, struct bpf_object *obj, __u32 num_threads, int start_thread, const char *dev, __u64 num_frames, __u32 duration){
+int run_af_xdp(__u32 xdpflags, struct bpf_object *obj, __u32 num_threads, int start_thread, const char *dev, __u64 num_frames, __u32 duration, __u8 busy_poll_mode){
     signal(SIGINT, handle_signal);
     signal(SIGTERM, handle_signal);
 
@@ -244,7 +261,7 @@ int run_af_xdp(__u32 xdpflags, struct bpf_object *obj, __u32 num_threads, int st
         }
 
         // Open and configure the AF_XDP (xsk) socket.
-        struct xsk_socket_info *xsk_socket = xsk_configure_socket(umem, i, (const char *)dev, xsks_fd, xdpflags, num_frames);
+        struct xsk_socket_info *xsk_socket = xsk_configure_socket(umem, i, (const char *)dev, xsks_fd, xdpflags, num_frames, busy_poll_mode);
         if (xsk_socket == NULL) {
             fprintf(stderr, "ERROR :: Can't setup AF_XDP socket for thread %d => \"%s\"\n", i, strerror(errno));
             xsk_umem__delete(umem->umem);
@@ -258,7 +275,6 @@ int run_af_xdp(__u32 xdpflags, struct bpf_object *obj, __u32 num_threads, int st
         tinfo[i].packets = 0;
         tinfo[i].bytes = 0;
         tinfo[i].done = 0;   
-        tinfo[i].num_frames = num_frames;   
         
         pthread_attr_t thread_attrs;
         pthread_attr_init(&thread_attrs);
@@ -309,8 +325,6 @@ int run_af_xdp(__u32 xdpflags, struct bpf_object *obj, __u32 num_threads, int st
         xsk_umem__delete(tinfo[i].xsk_info->umem_info->umem);
 
         free(tinfo[i].xsk_info->umem_info);
-        free(tinfo[i].xsk_info->umem_frame_addr);
-
         free(tinfo[i].xsk_info);
     }
 

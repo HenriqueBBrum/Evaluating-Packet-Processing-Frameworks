@@ -713,7 +713,7 @@ af-packet:
     #block-timeout: 10
     # On busy systems, set it to yes to help recover from a packet drop
     # phase. This will result in some packets (at max a ring flush) not being inspected.
-    #use-emergency-flush: yes
+    use-emergency-flush: yes
     # recv buffer size, increased value could improve performance
     # buffer-size: 32768
     # Choose checksum verification mode for the interface. At the moment
@@ -726,7 +726,7 @@ af-packet:
     #  - auto: Suricata uses a statistical approach to detect when
     #  checksum off-loading is used.
     # Warning: 'capture.checksum-validation' must be set to yes to have any validation
-    #checksum-checks: kernel
+    checksum-checks: no
 
   # Put default values here. These will be used for an interface that is not
   # in the list above.
@@ -1384,7 +1384,7 @@ host-mode: auto
 # Runmode the engine should use. Please check --list-runmodes to get the available
 # runmodes for each packet acquisition method. Default depends on selected capture
 # method. 'workers' generally gives best performance.
-#runmode: autofp
+runmode: workers
 
 # Specifies the kind of flow load balancer used by the flow pinned autofp mode.
 #
@@ -1877,7 +1877,7 @@ detect:
 # ruleset is small enough to fit in memory, in which case one can
 # use "full" with "ac".  The rest of the mpms can be run in "full" mode.
 
-mpm-algo: auto
+mpm-algo: hs
 
 # Select the matching algorithm you want to use for single-pattern searches.
 #
@@ -1886,11 +1886,11 @@ mpm-algo: auto
 #
 # The default of "auto" will use "hs" if available, otherwise "bm".
 
-spm-algo: auto
+spm-algo: hs
 
 # Suricata is multi-threaded. Here the threading can be influenced.
 threading:
-  set-cpu-affinity: no
+  set-cpu-affinity: yes
   autopin: no
   # Tune cpu affinity of threads. Each family of threads can be bound
   # to specific CPUs.
@@ -1906,37 +1906,12 @@ threading:
   cpu-affinity:
     management-cpu-set:
       cpu: [ 0 ]  # include only these CPUs in affinity settings
-    receive-cpu-set:
-      cpu: [ 0 ]  # include only these CPUs in affinity settings
-      # interface-specific-cpu-set:
-      #   - interface: "enp4s0f0"
-      #     cpu: [ 1,3,5,7,9 ]
-      #     mode: "exclusive"
-      #     prio:
-      #       high: [ "all" ]
-      #       default: "medium"
     worker-cpu-set:
-      cpu: [ "all" ]
+      cpu: [ "11-26" ]
       mode: "exclusive"
-      # Use explicitly 3 threads and don't compute number by using
-      # detect-thread-ratio variable:
-      # threads: 3
       prio:
-        low: [ 0 ]
-        medium: [ "1-2" ]
-        high: [ 3 ]
         default: "medium"
-      interface-specific-cpu-set:
-        - interface: "enp4s0f0" # 0000:3b:00.0 # net_bonding0 # ens1f0
-          cpu: [ 1,3,5,7,9 ]
-          mode: "exclusive"
-          prio:
-            high: [ "all" ]
-            default: "medium"
-    #verdict-cpu-set:
-    #  cpu: [ 0 ]
-    #  prio:
-    #    default: "high"
+      
   #
   # By default Suricata creates one "detect" thread per available CPU/CPU core.
   # This setting allows controlling this behaviour. A ratio setting of 2 will

@@ -14,8 +14,8 @@
 #include <rte_mbuf.h>
 
 #define MBUF_CACHE_SIZE 512
-#define RX_BATCH_SIZE 32
-#define RX_RING_SIZE 1024
+#define RX_BATCH_SIZE 64
+#define RX_RING_SIZE 2048
 
 #define MAX_LCORES 48
 
@@ -47,26 +47,24 @@ void print_usage(const char *prog_name){
     printf("  -h, --help              Display this help message\n");
     printf("  -v, --verbose           Enable verbose output\n");
     printf("  -a, --pci_address       Specify the pci address of the desired interface\n");
-    printf("  -r, --ring_size         Specify the rx ring buffer (queue) size of the desired interface\n");
     printf("  -n, --num_frames        Specify the number of packet slots in the memory pool\n");
     printf("  -d, --duration          Experiments duration\n");
     printf("\nExample: %s --lcores=0,1 -n 4 -- -v -a 0000:01:00.0 -r 1024 -n 8192 -d 30\n", prog_name);
 }
 
-int parse_app_args(int argc, char **argv, char **pci_address, int *verbose, int *ring_size, int *num_frames, int *duration){
+int parse_app_args(int argc, char **argv, char **pci_address, int *verbose, int *num_frames, int *duration){
     int opt;
     struct option long_options[] = {
         {"help",    no_argument,       0, 'h'},
         {"verbose", no_argument,       0, 'v'},
         {"pci_address",    required_argument, 0, 'a'},
-        {"ring_size",    required_argument, 0, 'r'},
         {"num_frames",    required_argument, 0, 'n'},
         {"duration",    required_argument, 0, 'd'},
         {0, 0, 0, 0}
     };
 
     int option_index = 0;
-    while ((opt = getopt_long(argc, argv, "hva:r:n:d:", long_options, &option_index)) != -1) {
+    while ((opt = getopt_long(argc, argv, "hva:n:d:", long_options, &option_index)) != -1) {
         switch (opt) {
             case 'h':
                 print_usage(argv[0]);
@@ -76,9 +74,6 @@ int parse_app_args(int argc, char **argv, char **pci_address, int *verbose, int 
                 break;
             case 'a':
                 *pci_address = optarg;
-                break;
-            case 'r':
-                *ring_size = atoi(optarg);
                 break;
             case 'n':
                 *num_frames = atoi(optarg);
@@ -98,14 +93,9 @@ int parse_app_args(int argc, char **argv, char **pci_address, int *verbose, int 
     return optind;
 }
 
-int validate_args(const char *pci_address, int ring_size, int num_frames, int duration) {
+int validate_args(const char *pci_address, int num_frames, int duration) {
     if (pci_address == NULL || strlen(pci_address) == 0) {
         fprintf(stderr, "Invalid argument: pci_address must be provided with -a/--pci_address.\n");
-        return 0;
-    }
-
-    if (ring_size < 1024 || ring_size > 131072) {
-        fprintf(stderr, "Invalid argument: ring_size must be between 1024 and 131072 (inclusive).\n");
         return 0;
     }
 
@@ -170,9 +160,9 @@ int main(int argc, char **argv){
     int ring_size = 1024, num_frames = 8192, duration = 10;
 
     if (argc > 0) 
-        parse_app_args(argc, argv, &pci_address, &verbose, &ring_size, &num_frames, &duration);
+        parse_app_args(argc, argv, &pci_address, &verbose, &num_frames, &duration);
 
-    if (!validate_args(pci_address, ring_size, num_frames, duration)) {
+    if (!validate_args(pci_address, num_frames, duration)) {
         print_usage(argv[0]);
         rte_eal_cleanup();
         return EXIT_FAILURE;

@@ -125,7 +125,7 @@ for flows_file_config in "${flows_file_configs[@]}"; do
                     cd "$source_folder/../baseline_programs/dpdk/" || exit 1
                     make > "$output_folder_final/make.log" 2>&1
                     monitored_process="dpdk_pkt_capture"
-                    sudo numactl -C "$thread_list" ./build/dpdk_pkt_capture -l "$dpdk_thread_list" -- -a "$pci_address" -r 1024 -n "$config" -d "$time_to_monitor" > "$output_folder_final/packet_counter.txt" 2>&1 &
+                    sudo numactl -C "$thread_list" ./build/dpdk_pkt_capture -l "$dpdk_thread_list" -- -a "$pci_address" -n "$config" -d "$time_to_monitor" > "$output_folder_final/packet_counter.txt" 2>&1 &
                 elif [[ "$strat" == "AF_XDP" ]]; then
                     cd "$source_folder/../baseline_programs/af_xdp/" || exit 1
                     make > "$output_folder_final/make.log" 2>&1

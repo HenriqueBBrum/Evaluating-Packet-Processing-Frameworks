@@ -14,6 +14,12 @@ fi
 interface=$1
 loops=$2
 output_folder_name=$3
+pci_address=$(lshw -class network -businfo 2>/dev/null | awk -v nic="$interface" '$2==nic {gsub("pci@", "", $1); print $1; exit}')
+if [ -z "$pci_address" ]; then
+    echo "Could not resolve PCIe address for interface '$interface' from: lshw -class network -businfo"
+    exit 1
+fi
+echo "Resolved PCIe address for $interface: $pci_address"
 
 source_folder="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
 output_folder="$source_folder/output/$output_folder_name"
@@ -23,6 +29,8 @@ if [ ! -f "$suricata_cfg" ]; then
     echo "Suricata config not found at $suricata_cfg"
     exit 1
 fi
+
+sed -i 
 
 # Experiments configuration
 time_to_monitor=35
@@ -71,6 +79,15 @@ run_trex() {
 }
 
 for thread in "${threads[@]}"; do
+    suricata_thread_range="$start_thread-$((start_thread + thread - 1))"
+
+    sed -i "/af-packet:/,/cluster-id/ s/threads: .*/threads: $thread /" $suricata_config
+    sed -i "/pfring:/,/cluster-id/ s/threads: .*/threads: $thread /" $suricata_config
+    sed -i "/af-xdp:/,/cluster-id/ s/threads: .*/threads: $thread /" $suricata_config
+    sed -i "/dpdk:/,/cluster-id/ s/threads: .*/threads: $thread /" $suricata_config
+
+    sed -i "/worker-cpu-set:/,/mode/ s/cpu: .*/cpu: [ $suricata_thread_range ]/" $suricata_config
+        
     for speed in "${speeds[@]}"; do
         for packet_size in "${packet_sizes[@]}"; do
             for proto in "${protocols[@]}"; do

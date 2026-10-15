@@ -27,11 +27,13 @@ void print_usage(const char *prog_name){
     printf("  -i, --interface         Network interface name (e.g., eth0)\n");
     printf("  -n, --num_frames        Number of frames in ring buffer (> 0)\n");
     printf("  -d, --duration          Duration in seconds (0 for infinite)\n");
+    printf("  -b, --busy_poll         Enable busy polling (default: disabled)\n");
     printf("\nExamples:\n");
     printf("  %s -s 0 -i eth0 -n 1024 -d 10\n", prog_name);
+    printf("  %s -s 0 -i eth0 -n 1024 -d 10 -b\n", prog_name);
 }
 
-int parse_app_args(int argc, char **argv, char **interface, int *num_frames, int *duration, int *start_thread){
+int parse_app_args(int argc, char **argv, char **interface, int *num_frames, int *duration, int *start_thread, int *busy_poll_mode){
     int opt;
     struct option long_options[] = {
         {"help",    no_argument,       0, 'h'},
@@ -39,11 +41,12 @@ int parse_app_args(int argc, char **argv, char **interface, int *num_frames, int
         {"num_frames",    required_argument, 0, 'n'},
         {"duration",    required_argument, 0, 'd'},
         {"start_thread", required_argument, 0, 's'},
+        {"busy_poll", no_argument, 0, 'b'},
         {0, 0, 0, 0}
     };
 
     int option_index = 0;
-    while ((opt = getopt_long(argc, argv, "hi:n:d:s:", long_options, &option_index)) != -1) {
+    while ((opt = getopt_long(argc, argv, "hi:n:d:s:b", long_options, &option_index)) != -1) {
         switch (opt) {
             case 'h':
                 print_usage(argv[0]);
@@ -59,6 +62,9 @@ int parse_app_args(int argc, char **argv, char **interface, int *num_frames, int
                 break;
             case 's':
                 *start_thread = atoi(optarg);
+                break;
+            case 'b':
+                *busy_poll_mode = 1;
                 break;
             case '?':
                 fprintf(stderr, "Unknown option\n");
@@ -132,8 +138,9 @@ int main(int argc, char *argv[]){
     int num_frames = 0;
     int duration = 0;
     int start_thread = 0;
+    int busy_poll_mode = 0;
 
-    parse_app_args(argc, argv, &interface, &num_frames, &duration, &start_thread);
+    parse_app_args(argc, argv, &interface, &num_frames, &duration, &start_thread, &busy_poll_mode);
     if (validate_app_args(start_thread, interface, num_frames, duration) == 0){
         print_usage(argv[0]);
         return EXIT_FAILURE;
@@ -183,7 +190,7 @@ int main(int argc, char *argv[]){
     }
     
     /** Main function call **/
-    int ret = run_af_xdp(flags, obj, channels, start_thread, interface, num_frames, (__u32)duration);
+    int ret = run_af_xdp(flags, obj, channels, start_thread, interface, num_frames, (__u32)duration, (__u8)busy_poll_mode);
     if (ret == EXIT_FAILURE)
         fprintf(stderr, "ERROR: Failure at main function\n");
 

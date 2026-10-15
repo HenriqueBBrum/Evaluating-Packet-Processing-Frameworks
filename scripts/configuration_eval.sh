@@ -76,17 +76,17 @@ pf_ring_configs=(65536 131072 262144)
 pf_ring_module_folder="/lib/modules/6.8.0-1047-nvidia/kernel/net/pf_ring/" # Replace with the actual path to the PF_RING module folder
 
 # AF_XDP configurations
-af_xdp_configs=("1024" "8192" "32768")
+af_xdp_configs=("2048" "8192" "32768")
 
 # DPDK configurations
-dpdk_configs=("1024" "8192" "32768")
+dpdk_configs=("2048" "8192" "32768")
 
-strategy=("AF_XDP") # "AF_PACKET"  "DPDK"  "vPF_RING" 
+strategy=("AF_XDP" "AF_PACKET"  "DPDK"  "vPF_RING" ) # 
 threads=("1")
 traffic_profile=("one_flow")
-speeds=("1" "10" "100")
-packet_sizes=("1400"  "512" "64") 
-protocol=("udp" "tcp")
+speeds=("1" "25" "90")  # "1" "25" "40" "90"
+packet_sizes=("1400" "512" "64")
+protocol=("udp") #  "tcp"
 for speed in "${speeds[@]}"; do
     for packet_size in "${packet_sizes[@]}"; do
         for proto in "${protocol[@]}"; do
@@ -94,6 +94,29 @@ for speed in "${speeds[@]}"; do
         done
     done
 done
+
+
+run_trex() {
+    local speed=$1
+    local packet_size=$2
+    local proto=$3
+    local output_dir=$4
+
+    ssh $tx_host@$tx_ip "mkdir -p $trex_experiments_folder/out/"
+    ssh $tx_host@$tx_ip "rm -f $trex_experiments_folder/out/*"
+    ssh $tx_host@$tx_ip "cd $trex_folder && sudo ./t-rex-64 -i -c 14" > "$output_dir"/trex_server.log 2>&1 &
+    trex_server_pid=$!
+    sleep 3
+    
+    ssh $tx_host@$tx_ip "source ~/trex_venv/bin/activate && python3 $trex_experiments_folder/stl/one_flow.py -d $time_to_run --log_file $trex_experiments_folder/out/trex.log -r $speed --pkt_size $packet_size --protocol $proto"
+
+    ssh $tx_host@$tx_ip "sudo pkill -f t-rex-64"
+    scp $tx_host@$tx_ip:"$trex_experiments_folder/out/*" "$output_dir"
+    if kill -0 "$trex_server_pid" 2>/dev/null; then
+        wait "$trex_server_pid" 2>/dev/null || true
+    fi
+}
+
 
 for thread in "${threads[@]}"; do
     for exp_config in "${experiments_config[@]}"; do
@@ -114,20 +137,21 @@ for thread in "${threads[@]}"; do
                 dpdk_thread_list="$start_thread-$((start_thread+$thread))"
             fi
 
-            if [[ "$strat" != "DPDK" ]]; then
-                sudo ethtool -K $interface rxhash on ntuple on
-                sudo ethtool -C $interface adaptive-rx off adaptive-tx off rx-usecs 0 rx-frames 0
-                sudo ethtool -G $interface rx $rx_ring_size
-                sudo ethtool -X $interface hfunc toeplitz
-                sudo ip link set $interface xdp off
-                sudo ip link set $interface promisc on
-            fi
-
-            sudo ethtool -L $interface combined $thread
-            thread_list="$start_thread-$((start_thread+$thread-1))"
-            sudo set_irq_affinity_cpulist.sh $thread_list $interface
-
             for config in "${configs[@]}"; do
+            
+                if [[ "$strat" != "DPDK" ]]; then
+                    sudo ethtool -K "$interface" rxhash on ntuple on
+                    sudo ethtool -C "$interface" adaptive-rx off adaptive-tx off rx-usecs 0 rx-frames 0
+                    sudo ethtool -G "$interface" rx "$rx_ring_size"
+                    sudo ethtool -X "$interface" hfunc toeplitz
+                    sudo ip link set "$interface" xdp off
+                    sudo ip link set "$interface" promisc on
+                fi
+
+                sudo ethtool -L "$interface" combined "$thread"
+                thread_list="$start_thread-$((start_thread+thread-1))"
+                sudo set_irq_affinity_cpulist.sh "$thread_list" "$interface"
+
                 config_label=$(echo "$config" | tr ' ' '_')
                 echo "Running $strat baseline program with $thread threads on interface $interface with $config frames"
                 for ((loop=1; loop<=loops; loop++)); do
@@ -145,7 +169,7 @@ for thread in "${threads[@]}"; do
                         make > "$output_folder_final/make.log" 2>&1
                         monitored_process="dpdk_pkt_capture"
                         read -r dpdk_num_frames <<< "$config"
-                        sudo numactl -C $thread_list ./build/dpdk_pkt_capture -l $dpdk_thread_list -- -a "$pci_address" -r 1024 -n $dpdk_num_frames -d $time_to_monitor > "$output_folder_final/packet_counter.txt" 2>&1 &
+                        sudo numactl -C $thread_list ./build/dpdk_pkt_capture -l $dpdk_thread_list -- -a "$pci_address" -n $dpdk_num_frames -d $time_to_monitor > "$output_folder_final/packet_counter.txt" 2>&1 &
                     elif [ "$strat" == "AF_XDP" ]; then
                         cd "$source_folder/../baseline_programs/af_xdp/" || exit 1
                         make > "$output_folder_final/make.log" 2>&1
@@ -174,13 +198,7 @@ for thread in "${threads[@]}"; do
                         pidstat_pid=$!
                     fi
 
-                    ssh $tx_host@$tx_ip "mkdir -p $trex_experiments_folder/out/"
-                    ssh $tx_host@$tx_ip "rm -f $trex_experiments_folder/out/*"
-                    ssh $tx_host@$tx_ip "cd $trex_folder && sudo ./t-rex-64 -i" > "$output_folder_final"/trex_server.log 2>&1 &
-                    sleep 3
-                    
-                    ssh $tx_host@$tx_ip "source ~/trex_venv/bin/activate && python3 $trex_experiments_folder/stl/one_flow.py -d $time_to_run --log_file $trex_experiments_folder/out/trex.log -r $speed --pkt_size $packet_size --protocol $proto"
-                    sleep 2
+                    run_trex "$speed" "$packet_size" "$proto" "$output_folder_final"
                     
                     if [[ "$strat" == "vPF_RING" ]]; then
                         cp /proc/net/pf_ring/*$interface* "$output_folder_final/"
@@ -201,8 +219,6 @@ for thread in "${threads[@]}"; do
                         sudo rmmod pf_ring
                     fi
 
-                    ssh $tx_host@$tx_ip "sudo pkill -f t-rex-64"
-                    scp $tx_host@$tx_ip:"$trex_experiments_folder/out/*" "$output_folder_final"
                     cd $source_folder
                 done
                 printf '%*s\n\n' "${COLUMNS:-$(tput cols)}" '' | tr ' ' '-'
