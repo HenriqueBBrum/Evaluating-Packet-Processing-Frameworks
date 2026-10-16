@@ -1,8 +1,5 @@
 #!/bin/bash
 
-# Single-config experiment runner.
-# Uses Suricata per strategy flag and the same TREX flow as single_config_trex_alt.sh.
-
 if [ "$#" -ne 3 ]; then
     echo "Usage: $0 <interface> <loops> <output_folder>"
     echo "  interface: network interface name to capture packets from"
@@ -22,41 +19,38 @@ fi
 echo "Resolved PCIe address for $interface: $pci_address"
 
 source_folder="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
-output_folder="$source_folder/output/$output_folder_name"
-suricata_cfg="$source_folder/suricata/suricata.yaml"
+output_folder="$source_folder/../output/$output_folder_name"
+suricata_config="$source_folder/../suricata/suricata.yaml"
+ruleset=$source_folder/../suricata/emerging-all.rules
+pf_ring_module_folder="/lib/modules/6.8.0-1047-nvidia/kernel/net/pf_ring/" # Replace with the actual path to the PF_RING module folder
 
-if [ ! -f "$suricata_cfg" ]; then
-    echo "Suricata config not found at $suricata_cfg"
+if [[ ! -f "$suricata_config" ]] || [[ ! -f "$ruleset" ]]; then
+    echo "Suricata config or ruleset not found at $suricata_config and $ruleset"
     exit 1
 fi
 
-sed -i 
+sed -i "/af-packet:/,/cluster-id/ s/interface: .*/interface: $interface/" $suricata_config
+sed -i "/af-xdp:/,/force-xdp-mode:/ s/interface: .*/interface: $interface/" $suricata_config
+sed -i "/pfring:/,/cluster-id/ s/interface: .*/interface: $interface/" $suricata_config
+sed -i "/dpdk:/,/promisc/ s/interface: .*/interface: $pci_address/" $suricata_config
 
 # Experiments configuration
-time_to_monitor=35
-time_to_run=20
+time_to_monitor=70
+time_to_run=30
 start_thread=20
 
 # Trex configuration
 tx_host="rising"
 tx_ip="10.231.0.101"
 trex_folder="/opt/trex/v3.08/"
-trex_client_script="~/packet_capture/stl/one_flow.py"
+trex_experiments_folder="~/packet_capture/"
 
-# NIC Queues Configuration
+# NIC queues configuration
 rx_ring_size=8192
 
-# One config label per strategy (for output directory only)
-af_packet_config_label="af_packet_default"
-af_xdp_config_label="af_xdp_default"
-pf_ring_config_label="pfring_default"
-dpdk_config_label="dpdk_default"
-
-strategy=("AF_PACKET" "DPDK" "vPF_RING" "AF_XDP")
-threads=("1" "2" "4" "8" "16")
-speeds=("1" "10" "100")
-packet_sizes=("1400" "512" "64")
-protocols=("udp" "tcp")
+strategy=("DPDK" "vPF_RING" ) # "AF_PACKET"  "AF_XDP"
+threads=("16") # ("8" "16")
+flows_file_configs=("4000000_AGH.txt 1" "4000000_BRAS.txt 10"  "4000000_CICIDS2017_Monday.txt 30")
 
 run_trex() {
     local speed="$1"
@@ -69,7 +63,7 @@ run_trex() {
     local trex_server_pid=$!
     sleep 3
 
-    ssh $tx_host@$tx_ip "source ~/trex_venv/bin/activate && python3 $trex_experiments_folder/flows_from_file.py -f $flows_file -r $speed -d $time_to_run -l $trex_experiments_folder/out/trex.log"
+    ssh $tx_host@$tx_ip "source ~/trex_venv/bin/activate && python3 $trex_experiments_folder/stl/flows_from_file.py -f $flows_file -r $speed -d $time_to_run -l $trex_experiments_folder/out/trex.log"
     
     ssh $tx_host@$tx_ip "sudo pkill -f t-rex-64"
     scp $tx_host@$tx_ip:"$trex_experiments_folder/out/*" "$output_dir"
@@ -78,92 +72,108 @@ run_trex() {
     fi
 }
 
-for thread in "${threads[@]}"; do
-    suricata_thread_range="$start_thread-$((start_thread + thread - 1))"
+for flows_file_config in "${flows_file_configs[@]}"; do
+    read -r flows_file speed <<< "$flows_file_config"
+    for thread in "${threads[@]}"; do
+        suricata_thread_range="$start_thread-$((start_thread + thread - 1))"
 
-    sed -i "/af-packet:/,/cluster-id/ s/threads: .*/threads: $thread /" $suricata_config
-    sed -i "/pfring:/,/cluster-id/ s/threads: .*/threads: $thread /" $suricata_config
-    sed -i "/af-xdp:/,/cluster-id/ s/threads: .*/threads: $thread /" $suricata_config
-    sed -i "/dpdk:/,/cluster-id/ s/threads: .*/threads: $thread /" $suricata_config
+        sed -i "/af-packet:/,/cluster-id/ s/threads: .*/threads: $thread /" $suricata_config
+        sed -i "/pfring:/,/cluster-id/ s/threads: .*/threads: $thread /" $suricata_config
+        sed -i "/af-xdp:/,/cluster-id/ s/threads: .*/threads: $thread /" $suricata_config
+        sed -i "/dpdk:/,/promisc/ s/threads: .*/threads: $thread /" $suricata_config
 
-    sed -i "/worker-cpu-set:/,/mode/ s/cpu: .*/cpu: [ $suricata_thread_range ]/" $suricata_config
-        
-    for speed in "${speeds[@]}"; do
-        for packet_size in "${packet_sizes[@]}"; do
-            for proto in "${protocols[@]}"; do
-                for strat in "${strategy[@]}"; do
-                    printf '%*s\n\n' "${COLUMNS:-$(tput cols)}" '' | tr ' ' '#'
-                    echo "Strategy: $strat"
+        sed -i "/management-cpu-set:/,/mode/ s/cpu: .*/cpu: [ $start_thread ]/" $suricata_config
+        sed -i "/worker-cpu-set:/,/mode/ s/cpu: .*/cpu: [ $suricata_thread_range ]/" $suricata_config
+            
+        for strat in "${strategy[@]}"; do
+            printf '%*s\n\n' "${COLUMNS:-$(tput cols)}" '' | tr ' ' '#'
+            echo "Strategy: $strat"
 
-                    if [[ "$strat" == "AF_PACKET" ]]; then
-                        config_label="$af_packet_config_label"
-                        suricata_flag="--af-packet=$interface"
-                    elif [[ "$strat" == "AF_XDP" ]]; then
-                        config_label="$af_xdp_config_label"
-                        suricata_flag="--af-xdp=$interface"
-                    elif [[ "$strat" == "vPF_RING" ]]; then
-                        config_label="$pf_ring_config_label"
-                        suricata_flag="--pfring-int=$interface"
-                    else
-                        config_label="$dpdk_config_label"
-                        suricata_flag="--dpdk"
-                    fi
+            if [[ "$strat" == "AF_PACKET" ]]; then
+                suricata_flag="--af-packet=$interface"
+            elif [[ "$strat" == "AF_XDP" ]]; then
+                suricata_flag="--af-xdp=$interface"
+            elif [[ "$strat" == "vPF_RING" ]]; then
+                suricata_flag="--pfring-int=$interface"
+            else
+                suricata_flag="--dpdk"
+            fi
 
-                    if [[ "$strat" != "DPDK" ]]; then
-                        sudo ethtool -K "$interface" rxhash on ntuple on
-                        sudo ethtool -C "$interface" adaptive-rx off adaptive-tx off rx-usecs 0 rx-frames 0
-                        sudo ethtool -G "$interface" rx "$rx_ring_size"
-                        sudo ethtool -X "$interface" hfunc toeplitz
-                        sudo ip link set "$interface" xdp off
-                        sudo ip link set "$interface" promisc on
-                    fi
+            if [[ "$strat" != "DPDK" ]]; then
+                sudo ethtool -K "$interface" rxhash on ntuple on
+                sudo ethtool -C "$interface" adaptive-rx off adaptive-tx off rx-usecs 0 rx-frames 0
+                sudo ethtool -G "$interface" rx "$rx_ring_size"
+                sudo ethtool -X "$interface" hfunc toeplitz
+                sudo ip link set "$interface" xdp off
+                sudo ip link set "$interface" promisc on
+            fi
 
-                    sudo ethtool -L "$interface" combined "$thread"
-                    thread_list="$start_thread-$((start_thread+thread-1))"
-                    sudo set_irq_affinity_cpulist.sh "$thread_list" "$interface"
+            sudo ethtool -L "$interface" combined "$thread"
+            sudo set_irq_affinity_cpulist.sh "$suricata_thread_range" "$interface"
 
-                    echo "Running Suricata for strategy $strat with $thread threads on interface $interface"
+            echo "Running Suricata for strategy $strat with $thread threads on interface $interface"
 
-                    for ((loop=1; loop<=loops; loop++)); do
-                        output_folder_final="$output_folder/${thread}_threads/${speed}Gbps_${packet_size}bytes_${proto}/$strat/config_${config_label}/loop_${loop}"
-                        mkdir -p "$output_folder_final"
-                        rm -f "$output_folder_final"/*
+            for ((loop=1; loop<=loops; loop++)); do
+                output_folder_final="$output_folder/${thread}_threads/${speed}Gbps_${flows_file}/$strat/loop_${loop}"
+                mkdir -p "$output_folder_final"
+                rm -f "$output_folder_final"/*
 
-                        bash "$source_folder/monitoring.sh" "$interface" rx "$time_to_monitor" "$output_folder_final" &
-                        monitor_pid=$!
+                bash "$source_folder/monitoring.sh" "$interface" rx "$time_to_monitor" "$output_folder_final" &
+                monitor_pid=$!
 
-                        echo "  Output folder: $output_folder_final"
-                        echo "  Loop $loop of $loops"
+                echo "  Output folder: $output_folder_final"
+                echo "  Loop $loop of $loops"
 
-                        # Suricata logs and stats are written to the current output folder.
-                        sudo numactl -C "$thread_list" timeout --signal=SIGINT "${time_to_monitor}s" suricata -c "$suricata_cfg" -l "$output_folder_final" "$suricata_flag" > "$output_folder_final/suricata_stdout.log" 2>&1 &
-                        packet_capture_pid=$!
+                # Suricata logs and stats are written to the current output folder.
+                if [ "$strat" == "vPF_RING" ]; then
+                    cd "$pf_ring_module_folder"
+                    sudo insmod pf_ring.ko min_num_slots="$config" enable_tx_capture=0
+                    sleep 3
+                    cd "$source_folder"
+                fi
+                sudo numactl -C "$suricata_thread_range" suricata -vvvv -c "$suricata_config" -S $ruleset -l "$output_folder_final" "$suricata_flag" -D
 
-                        pidstat_pid=""
-                        monitored_process="suricata"
-                        monitored_process_pidstat="${monitored_process:0:15}"
-                        sudo pidstat -C "$monitored_process_pidstat" -t 1 > "$output_folder_final/pidstat.log" 2>&1 &
-                        pidstat_pid=$!
+                sudo pidstat -C "suricata" -t 1 > "$output_folder_final/pidstat.log" 2>&1 &
+                pidstat_pid=$!
 
-                        sleep 3
-                        run_trex_flow "$speed" "$packet_size" "$proto" "$output_folder_final"
+                sleep 3
+                run_trex "$speed" "$flows_file" "$output_folder_final"
 
-                        if [[ -n "$packet_capture_pid" ]] && kill -0 "$packet_capture_pid" 2>/dev/null; then
-                            kill -s SIGINT "$packet_capture_pid"
-                            wait "$packet_capture_pid" 2>/dev/null || true
-                        fi
-                        if [[ -n "$pidstat_pid" ]] && kill -0 "$pidstat_pid" 2>/dev/null; then
-                            kill -s SIGTERM "$pidstat_pid"
-                            wait "$pidstat_pid" 2>/dev/null || true
-                        fi
-                        wait "$monitor_pid" 2>/dev/null || true
+                if [[ "$strat" == "vPF_RING" ]]; then
+                    cp /proc/net/pf_ring/*$interface* "$output_folder_final/"
+                    chmod a+w "$output_folder_final/"*
+                fi
 
-                        cd "$source_folder" || exit 1
+                if [[ -f /usr/local/var/run/suricata.pid ]]; then
+                    echo "Stopping Suricata..."
+                    sudo kill -INT $(cat /usr/local/var/run/suricata.pid)
+                    suricata_pid=$(cat /usr/local/var/run/suricata.pid)
+                    while [ -e /proc/$suricata_pid ]
+                    do
+                        echo "Suricata: $suricata_pid is still running"
+                        sleep 2
                     done
+                    echo "Suricata $suricata_pid has finished"
+                    if [[ -f /usr/local/var/run/suricata.pid ]]; then
+                        sudo rm /usr/local/var/run/suricata.pid
+                    fi
+                fi
 
-                    printf '%*s\n\n' "${COLUMNS:-$(tput cols)}" '' | tr ' ' '-'
-                done
+                if [[ -n "$pidstat_pid" ]] && kill -0 "$pidstat_pid" 2>/dev/null; then
+                    kill -s SIGTERM "$pidstat_pid"
+                    wait "$pidstat_pid" 2>/dev/null || true
+                fi
+                wait "$monitor_pid" 2>/dev/null || true
+
+                if [[ "$strat" == "vPF_RING" ]]; then
+                    sudo rmmod pf_ring
+                fi
+
+                cd "$source_folder" || exit 1
             done
+            printf '%*s\n\n' "${COLUMNS:-$(tput cols)}" '' | tr ' ' '-'
         done
+        exit
     done
+    exit
 done

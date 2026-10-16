@@ -69,22 +69,22 @@ trex_experiments_folder="~/packet_capture/" # Crerate a trex_code folder in the 
 rx_ring_size=8192
 
 # AF-PACKET configurations
-af_packet_configs=("32768 256" "32768 2048" "131072 256") 
+af_packet_configs=("131072 8192") # ("32768 256" "32768 2048" "131072 256") 
 
 # PF_RING configurations
-pf_ring_configs=(65536 131072 262144)
+pf_ring_configs=(1048576) # (65536 131072 262144)
 pf_ring_module_folder="/lib/modules/6.8.0-1047-nvidia/kernel/net/pf_ring/" # Replace with the actual path to the PF_RING module folder
 
 # AF_XDP configurations
-af_xdp_configs=("2048" "8192" "32768")
+af_xdp_configs=(131072) #(2048 8192 32768)
 
 # DPDK configurations
-dpdk_configs=("2048" "8192" "32768")
+dpdk_configs=(2048 8192 32768)
 
-strategy=("AF_XDP" "AF_PACKET"  "DPDK"  "vPF_RING" ) # 
+strategy=("AF_PACKET" "AF_XDP" "vPF_RING") # "AF_XDP" "AF_PACKET"  "DPDK"  "vPF_RING" # AF_XDPb
 threads=("1")
 traffic_profile=("one_flow")
-speeds=("1" "25" "90")  # "1" "25" "40" "90"
+speeds=("1" "25")  # "1" "25" "40" "90"
 packet_sizes=("1400" "512" "64")
 protocol=("udp") #  "tcp"
 for speed in "${speeds[@]}"; do
@@ -128,7 +128,7 @@ for thread in "${threads[@]}"; do
             configs=("default")
             if [ "$strat" == "AF_PACKET" ]; then
                 configs=("${af_packet_configs[@]}")
-            elif [ "$strat" == "AF_XDP" ]; then
+            elif [[ "$strat" == "AF_XDP" || "$strat" == "AF_XDPb" ]]; then
                 configs=("${af_xdp_configs[@]}")
             elif [ "$strat" == "vPF_RING" ]; then
                 configs=("${pf_ring_configs[@]}")
@@ -176,6 +176,12 @@ for thread in "${threads[@]}"; do
                         monitored_process="af_xdp"
                         read -r af_xdp_queue_count <<< "$config"
                         sudo numactl -C $thread_list ./build/af_xdp -s $start_thread -i "$interface" -n "$af_xdp_queue_count" -d $time_to_monitor > "$output_folder_final/packet_counter.txt" 2>&1 &
+                    elif [ "$strat" == "AF_XDPb" ]; then
+                        cd "$source_folder/../baseline_programs/af_xdp/" || exit 1
+                        make > "$output_folder_final/make.log" 2>&1
+                        monitored_process="af_xdp"
+                        read -r af_xdp_queue_count <<< "$config"
+                        sudo numactl -C $thread_list ./build/af_xdp -s $start_thread -i "$interface" -n "$af_xdp_queue_count" -d $time_to_monitor -b > "$output_folder_final/packet_counter.txt" 2>&1 &
                     elif [ "$strat" == "vPF_RING" ]; then
                         cd "$pf_ring_module_folder"
                         monitored_process="pfcount_multichannel"

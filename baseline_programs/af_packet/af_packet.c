@@ -39,6 +39,7 @@ typedef struct {
 
 static volatile sig_atomic_t exit_indicator = 0;
 static void handle_signal(int sig){
+    (void)sig;
     exit_indicator = 1;
     printf("Signal received, stopping all threads...\n");
 }

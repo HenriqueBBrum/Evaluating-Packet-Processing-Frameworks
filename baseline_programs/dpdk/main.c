@@ -4,9 +4,8 @@
 #include <signal.h>
 #include <stdbool.h>
 #include <time.h>
-#include<unistd.h>
+#include <unistd.h>
 #include <getopt.h>
-
 
 #include <rte_eal.h>
 #include <rte_errno.h>
@@ -15,7 +14,7 @@
 
 #define MBUF_CACHE_SIZE 512
 #define RX_BATCH_SIZE 64
-#define RX_RING_SIZE 2048
+#define RX_RING_SIZE 8192
 
 #define MAX_LCORES 48
 
@@ -49,7 +48,7 @@ void print_usage(const char *prog_name){
     printf("  -a, --pci_address       Specify the pci address of the desired interface\n");
     printf("  -n, --num_frames        Specify the number of packet slots in the memory pool\n");
     printf("  -d, --duration          Experiments duration\n");
-    printf("\nExample: %s --lcores=0,1 -n 4 -- -v -a 0000:01:00.0 -r 1024 -n 8192 -d 30\n", prog_name);
+    printf("\nExample: %s --lcores=0,1 -n 4 -- -v -a 0000:01:00.0 -n 8192 -d 30\n", prog_name);
 }
 
 int parse_app_args(int argc, char **argv, char **pci_address, int *verbose, int *num_frames, int *duration){

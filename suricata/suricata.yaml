@@ -98,7 +98,7 @@ outputs:
 
   # Extensible Event Format (nicknamed EVE) event log in JSON format
   - eve-log:
-      enabled: yes
+      enabled: no
       filetype: regular #regular|syslog|unix_dgram|unix_stream|redis
       filename: eve.json
       # Enable for multi-threaded eve.json output; output files are amended with
@@ -672,7 +672,7 @@ logging:
 af-packet:
   - interface: ens1f0np0
     # Number of receive threads. "auto" uses the number of cores
-    threads: 8
+    threads: 16 
     # Default clusterid. AF_PACKET will load balance packets based on flow.
     cluster-id: 99
     # Default AF_PACKET cluster type. AF_PACKET can load balance per flow or per hash.
@@ -703,11 +703,11 @@ af-packet:
     # the following value. If you are using flow "cluster-type" and have really network
     # intensive single-flow you may want to set the "ring-size" independently of the number
     # of threads:
-    ring-size: 2048
+    ring-size: 100000
     # Block size is used by tpacket_v3 only. It should set to a value high enough to contain
     # a decent number of packets. Size is in bytes so please consider your MTU. It should be
     # a power of 2 and it must be multiple of page size (usually 4096).
-    #block-size: 32768
+    block-size: 131072
     # tpacket_v3 block timeout: an open block is passed to userspace if it is not
     # filled after block-timeout milliseconds.
     #block-timeout: 10
@@ -728,20 +728,12 @@ af-packet:
     # Warning: 'capture.checksum-validation' must be set to yes to have any validation
     checksum-checks: no
 
-  # Put default values here. These will be used for an interface that is not
-  # in the list above.
-  - interface: default
-    #threads: 8
-    # If left commented out, defaults to true when not in a copy
-    # (inline) mode.
-    #tpacket-v3: yes
-
 # Linux high speed af-xdp capture support
 af-xdp:
   - interface: ens1f0np0
     # Number of receive threads. "auto" uses least between the number
     # of cores and RX queues
-    threads: 8
+    threads: 16 
     #disable-promisc: false
     # XDP_DRV mode can be chosen when the driver supports XDP
     # XDP_SKB mode can be chosen when the driver does not support XDP
@@ -786,23 +778,27 @@ af-xdp:
     #gro-flush-timeout: 2000000
     #napi-defer-hard-irq: 2
 
+
+
+
 dpdk:
   eal-params:
     proc-type: primary
+    allow: [ "0000:01:00.0" ]
 
   # DPDK capture support
   # RX queues (and TX queues in IPS mode) are assigned to cores in 1:1 ratio
   interfaces:
-    - interface: 0000:01:00.0 # PCIe address of the NIC port
+    - interface: 0000:01:00.0
       # Threading: possible values are either "auto" or number of threads
       # - auto takes all cores
       # in IPS mode it is required to specify the number of cores and the numbers on both interfaces must match
-      threads: 8
+      threads: 16 
       promisc: true # promiscuous mode - capture all packets
       multicast: true # enables also detection on multicast packets
-      checksum-checks: true # if Suricata should validate checksums
-      checksum-checks-offload: true # if possible offload checksum validation to the NIC (saves Suricata resources)
-      mtu: 1500 # Set MTU of the device in bytes
+      checksum-checks: false # if Suricata should validate checksums
+      checksum-checks-offload: false # if possible offload checksum validation to the NIC (saves Suricata resources)
+      mtu: 3400 # Set MTU of the device in bytes
       vlan-strip-offload: false # if possible enable hardware vlan stripping
       # rss-hash-functions: 0x0 # advanced configuration option, use only if you use untested NIC card and experience RSS warnings,
       # For `rss-hash-functions` use hexadecimal 0x01ab format to specify RSS hash function flags - DumpRssFlags can help (you can see output if you use -vvv option during Suri startup)
@@ -813,8 +809,8 @@ dpdk:
       # Make sure you have enough allocated hugepages.
       mempool-size: auto # autocalculated based on Rx/Tx descriptors and threads
       mempool-cache-size: auto # autocalculated from the mempool size
-      rx-descriptors: auto # max number of descriptors
-      tx-descriptors: auto # max number of descriptors
+      rx-descriptors: 8192 # max number of descriptors
+      tx-descriptors: 8192 # max number of descriptors
       #
       # IPS mode for Suricata works in 3 modes - none, tap, ips
       # - none: IDS mode only - disables IPS functionality (does not further forward packets)
@@ -845,7 +841,7 @@ pcap:
     # may want to have the same number of capture threads as the number of capture
     # rings. In this case, set up the threads variable to N to start N threads
     # listening on the same interface.
-    #threads: 16
+    #threads: 16 
     # set to no to disable promiscuous mode:
     #promisc: no
     # set snaplen, if not set it defaults to MTU if MTU can be known
@@ -1379,7 +1375,7 @@ host-mode: auto
 # Number of packets preallocated per thread. The default is 1024. A higher number 
 # will make sure each CPU will be more easily kept busy, but may negatively 
 # impact caching.
-#max-pending-packets: 1024
+max-pending-packets: 32768
 
 # Runmode the engine should use. Please check --list-runmodes to get the available
 # runmodes for each packet acquisition method. Default depends on selected capture
@@ -1546,10 +1542,10 @@ defrag:
 #  "reject" or "ignore" (which is the default).
 
 flow:
-  memcap: 128 MiB
+  memcap: 16384 MiB
   #memcap-policy: ignore
-  hash-size: 65536
-  prealloc: 10000
+  hash-size: 327680 # 65536
+  prealloc: 50000 # 10000
   emergency-recovery: 30
   #managers: 1 # default to one flow manager
   #recyclers: 1 # default to one flow recycler thread
@@ -1701,7 +1697,7 @@ flow-timeouts:
 #                               # defaults to 8, if no configuration was provided. 0 means no limit.
 
 stream:
-  memcap: 64 MiB
+  memcap: 4096 MiB
   #memcap-policy: ignore
   checksum-validation: yes      # reject incorrect csums
   #midstream: false
@@ -1905,9 +1901,9 @@ threading:
   #
   cpu-affinity:
     management-cpu-set:
-      cpu: [ 0 ]  # include only these CPUs in affinity settings
+      cpu: [ 20 ]
     worker-cpu-set:
-      cpu: [ "11-26" ]
+      cpu: [ 20-35 ]
       mode: "exclusive"
       prio:
         default: "medium"
@@ -2088,7 +2084,7 @@ netmap:
    # Number of capture threads. "auto" uses number of RSS queues on interface.
    # Warning: unless the RSS hashing is symmetrical, this will lead to
    # accuracy issues.
-   #threads: 8
+   #threads: 16 
    # You can use the following variables to activate netmap tap or IPS mode.
    # If copy-mode is set to ips or tap, the traffic coming to the current
    # interface will be copied to the copy-iface interface. If 'tap' is set, the
@@ -2117,7 +2113,7 @@ netmap:
    # BPF filter to apply to this interface. The pcap filter syntax apply here.
    #bpf-filter: port 80 or udp
  #- interface: eth3
-   #threads: 8
+   #threads: 16 
    #copy-mode: tap
    #copy-iface: eth2
    # Put default values here
@@ -2129,7 +2125,7 @@ pfring:
   - interface: ens1f0np0
     # Number of receive threads. If set to 'auto' Suricata will first try
     # to use CPU (core) count and otherwise RSS queue count.
-    threads: 8
+    threads: 16 
 
     # Default clusterid.  PF_RING will load balance packets based on flow.
     # All threads/processes that will participate need to have the same
@@ -2156,7 +2152,7 @@ pfring:
     #  - auto: Suricata uses a statistical approach to detect when
     #  checksum off-loading is used. (default)
     # Warning: 'checksum-validation' must be set to yes to have any validation
-    checksum-checks: rxonly
+    checksum-checks: no
 
 ##
 ## Configure Suricata to load Suricata-Update managed rules.

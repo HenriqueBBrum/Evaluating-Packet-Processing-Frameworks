@@ -42,18 +42,15 @@ rx_ring_size=8192
 
 # One config per strategy
 af_packet_config="32768 2048"
-af_xdp_config="8192"
-pf_ring_config="65536"
+af_xdp_config="32768"
+pf_ring_config="262144"
 dpdk_config="8192"
 
 pf_ring_module_folder="/lib/modules/6.8.0-1047-nvidia/kernel/net/pf_ring/"
 
 strategy=("AF_PACKET" "DPDK" "vPF_RING" "AF_XDP")
 flows_file_configs=("4000000_AGH.txt 35" "4000000_BRAS.txt 10"  "4000000_CICIDS2017_Monday.txt 30")
-threads=("1" "2" "4" "8" "16")
-speeds=("1" "10" "100")
-packet_sizes=("1400" "512" "64")
-protocols=("udp" "tcp")
+threads=("1" "4" "16")
 
 run_trex() {
     local speed="$1"
