@@ -4,3 +4,4 @@ perf*
 *.o
 *.bc
 graphs/*
+*.png

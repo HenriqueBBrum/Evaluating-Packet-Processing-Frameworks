@@ -112,14 +112,14 @@ def plot_by_speed(parsed_results, output_folder):
                 })
     
     # For each speed and strategy, select only the best config
-    best_configs = defaultdict(dict)
+    best_configs = defaultdict(lambda: defaultdict(dict))
     for speed, scenario_data in speeds_data.items():
-        for strategy_data in scenario_data.values():
+        for (packet_size, protocol), strategy_data in scenario_data.items():
             for strategy, configs_list in strategy_data.items():
-                if strategy not in best_configs[speed]:
+                if strategy not in best_configs[speed][(packet_size, protocol)]:
                     # Find config with highest average rx_percentage across all scenarios
                     best_config = max(configs_list, key=lambda x: x["rx_percentage"])
-                    best_configs[speed][strategy] = best_config["config"]
+                    best_configs[speed][(packet_size, protocol)][strategy] = best_config["config"]
 
 
     
@@ -151,14 +151,12 @@ def plot_by_speed(parsed_results, output_folder):
             strategy_marker = markers[color_idx % len(markers)]
             color_idx += 1
             
-            # Use the best config for this strategy
-            best_config = best_configs[speed][strategy]
-            print(speed, strategy, best_config)
             # Collect Y values for this strategy and best config across all scenarios
             y_values = []
             valid_x_positions = []
             
             for x_pos, (packet_size, protocol) in enumerate(x_labels):
+                best_config = best_configs[speed][(packet_size, protocol)][strategy]
                 scenario_data = speeds_data[speed][(packet_size, protocol)]
                 
                 if strategy in scenario_data:
@@ -204,66 +202,66 @@ def plot_by_speed(parsed_results, output_folder):
 
 
 def plot_configs_by_strategy(parsed_results, output_folder):
-    strategy_speed_config = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
+    strategy_speed_config = defaultdict(lambda: defaultdict(lambda: defaultdict(lambda: defaultdict(list))))
 
-    for (speed, _, _), strategies in parsed_results.items():
+    for (speed, packet_size, proto), strategies in parsed_results.items():
         for strategy, configs in strategies.items():
             for config_key, loops_data in configs.items():
                 avg_rx_percentage = _average_rx_percentage(loops_data)
-                strategy_speed_config[strategy][config_key][speed].append(avg_rx_percentage)
+                strategy_speed_config[strategy][packet_size+"_"+proto][config_key][speed].append(avg_rx_percentage)
 
     colors = ["#318526", "#FA5C06", "#4169E1", "#c8ac0d", "#9467bd", "#8c564b", "#17becf"]
     markers = ["o", "^", "*", "s", "p", "d", "x"]
 
     for strategy in sorted(strategy_speed_config.keys()):
-        fig, ax = plt.subplots(figsize=(10, 6))
+        for packet_proto_key in sorted(strategy_speed_config[strategy].keys()):
+            fig, ax = plt.subplots(figsize=(10, 6))
 
-        config_data = strategy_speed_config[strategy]
-        all_speeds = sorted(
-            {speed for speed_data in config_data.values() for speed in speed_data.keys()},
-            key=lambda x: int(x)
-        )
-        x_positions = np.arange(len(all_speeds))
-        speed_to_x = {speed: idx for idx, speed in enumerate(all_speeds)}
+            config_data = strategy_speed_config[strategy][packet_proto_key]
+            all_speeds = sorted(
+                {speed for speed_data in config_data.values() for speed in speed_data.keys()},
+                key=lambda x: int(x)
+            )
+            x_positions = np.arange(len(all_speeds))
+            speed_to_x = {speed: idx for idx, speed in enumerate(all_speeds)}
+            for idx, config_key in enumerate(sorted(config_data.keys())):
+                y_values = []
+                valid_x_positions = []
+                for speed in all_speeds:
+                    values = config_data[config_key].get(speed, [])
+                    if values:
+                        y_values.append(float(np.mean(values)))
+                        valid_x_positions.append(speed_to_x[speed])
 
-        for idx, config_key in enumerate(sorted(config_data.keys())):
-            y_values = []
-            valid_x_positions = []
-            for speed in all_speeds:
-                values = config_data[config_key].get(speed, [])
-                if values:
-                    y_values.append(float(np.mean(values)))
-                    valid_x_positions.append(speed_to_x[speed])
+                if valid_x_positions:
+                    ax.plot(
+                        valid_x_positions,
+                        y_values,
+                        marker=markers[idx % len(markers)],
+                        linestyle='-',
+                        color=colors[idx % len(colors)],
+                        linewidth=2,
+                        markersize=7,
+                        label=config_key,
+                        alpha=0.85
+                    )
 
-            if valid_x_positions:
-                ax.plot(
-                    valid_x_positions,
-                    y_values,
-                    marker=markers[idx % len(markers)],
-                    linestyle='-',
-                    color=colors[idx % len(colors)],
-                    linewidth=2,
-                    markersize=7,
-                    label=config_key,
-                    alpha=0.85
-                )
+            ax.set_xlabel("Speed (Gbps)", fontsize=12)
+            ax.set_ylabel("RX Packet Percentage (%)", fontsize=12)
+            ax.set_title(f"Packet Reception Percentage by Config - Strategy: {strategy}, Packet/Protocol: {packet_proto_key}")
+            ax.set_ylim(-5, 105)
+            ax.set_xticks(x_positions)
+            ax.set_xticklabels([f"{speed}" for speed in all_speeds], fontsize=12)
+            ax.grid(True, alpha=0.3)
+            ax.legend(title="Config")
 
-        ax.set_xlabel("Speed (Gbps)", fontsize=12)
-        ax.set_ylabel("RX Packet Percentage (%)", fontsize=12)
-        ax.set_title(f"Packet Reception Percentage by Config - Strategy: {strategy}")
-        ax.set_ylim(-5, 105)
-        ax.set_xticks(x_positions)
-        ax.set_xticklabels([f"{speed}" for speed in all_speeds], fontsize=12)
-        ax.grid(True, alpha=0.3)
-        ax.legend(title="Config")
+            plt.tight_layout()
 
-        plt.tight_layout()
-
-        safe_strategy = re.sub(r"[^a-zA-Z0-9._-]", "_", strategy)
-        output_path = os.path.join(output_folder, f"strategy_{safe_strategy}_configs_by_speed.png")
-        plt.savefig(output_path, dpi=300, bbox_inches='tight')
-        print(f"Saved plot: {output_path}")
-        plt.close()
+            safe_strategy = re.sub(r"[^a-zA-Z0-9._-]", "_", strategy)
+            output_path = os.path.join(output_folder, f"strategy_{safe_strategy}_{packet_proto_key}.png")
+            plt.savefig(output_path, dpi=300, bbox_inches='tight')
+            print(f"Saved plot: {output_path}")
+            plt.close()
 
 
 

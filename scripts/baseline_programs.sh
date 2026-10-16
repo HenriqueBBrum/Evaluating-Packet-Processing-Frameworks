@@ -43,7 +43,7 @@ rx_ring_size=8192
 # One config per strategy
 af_packet_config="32768 2048"
 af_xdp_config="32768"
-pf_ring_config="262144"
+pf_ring_config="1048576"
 dpdk_config="8192"
 
 pf_ring_module_folder="/lib/modules/6.8.0-1047-nvidia/kernel/net/pf_ring/"
@@ -107,7 +107,8 @@ for flows_file_config in "${flows_file_configs[@]}"; do
             echo "Running $strat baseline program with $thread threads on interface $interface with config $config"
 
             for ((loop=1; loop<=loops; loop++)); do
-                output_folder_final="$output_folder/${thread}_threads/${speed}Gbps_${flows_file}/$strat/config_${config_label}/loop_${loop}"
+                flows_file_name=$(basename "$flows_file" .txt)
+                output_folder_final="$output_folder/${thread}_threads/${speed}Gbps_${flows_file_name}/$strat/config_${config_label}/loop_${loop}"
                 mkdir -p "$output_folder_final"
                 rm -f "$output_folder_final"/*
 

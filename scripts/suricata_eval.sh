@@ -48,9 +48,9 @@ trex_experiments_folder="~/packet_capture/"
 # NIC queues configuration
 rx_ring_size=8192
 
-strategy=("DPDK" "vPF_RING" ) # "AF_PACKET"  "AF_XDP"
-threads=("16") # ("8" "16")
-flows_file_configs=("4000000_AGH.txt 1" "4000000_BRAS.txt 10"  "4000000_CICIDS2017_Monday.txt 30")
+strategy=("vPF_RING" "AF_PACKET"  "AF_XDP"  "DPDK")
+threads=("4" "16") # ("8" "16")
+flows_file_configs=("4000000_AGH.txt 35" "4000000_BRAS.txt 10"  "4000000_CICIDS2017_Monday.txt 30")
 
 run_trex() {
     local speed="$1"
@@ -75,7 +75,8 @@ run_trex() {
 for flows_file_config in "${flows_file_configs[@]}"; do
     read -r flows_file speed <<< "$flows_file_config"
     for thread in "${threads[@]}"; do
-        suricata_thread_range="$start_thread-$((start_thread + thread - 1))"
+        workers_start_thread=$(($start_thread+1))
+        suricata_thread_range="$workers_start_thread-$((workers_start_thread + thread - 1))"
 
         sed -i "/af-packet:/,/cluster-id/ s/threads: .*/threads: $thread /" $suricata_config
         sed -i "/pfring:/,/cluster-id/ s/threads: .*/threads: $thread /" $suricata_config
@@ -114,7 +115,8 @@ for flows_file_config in "${flows_file_configs[@]}"; do
             echo "Running Suricata for strategy $strat with $thread threads on interface $interface"
 
             for ((loop=1; loop<=loops; loop++)); do
-                output_folder_final="$output_folder/${thread}_threads/${speed}Gbps_${flows_file}/$strat/loop_${loop}"
+                flows_file_name=$(basename "$flows_file" .txt)
+                output_folder_final="$output_folder/${thread}_threads/${speed}Gbps_${flows_file_name}/$strat/loop_${loop}"
                 mkdir -p "$output_folder_final"
                 rm -f "$output_folder_final"/*
 
@@ -127,7 +129,7 @@ for flows_file_config in "${flows_file_configs[@]}"; do
                 # Suricata logs and stats are written to the current output folder.
                 if [ "$strat" == "vPF_RING" ]; then
                     cd "$pf_ring_module_folder"
-                    sudo insmod pf_ring.ko min_num_slots="$config" enable_tx_capture=0
+                    sudo insmod pf_ring.ko min_num_slots=1048576 enable_tx_capture=0
                     sleep 3
                     cd "$source_folder"
                 fi
@@ -173,7 +175,5 @@ for flows_file_config in "${flows_file_configs[@]}"; do
             done
             printf '%*s\n\n' "${COLUMNS:-$(tput cols)}" '' | tr ' ' '-'
         done
-        exit
     done
-    exit
 done

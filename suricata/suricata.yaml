@@ -756,18 +756,18 @@ af-xdp:
     # select 'yes' to enable unaligned chunk mode.
     # Note: unaligned chunk mode uses hugepages, so the required number
     # of pages must be available.
-    #mem-unaligned: no
+    mem-unaligned: yes
     # The following options configure the prefer-busy-polling socket
     # options. The polling time and budget can be edited here.
     # Possible values are:
     #  - yes: enable (default)
     #  - no: disable
-    #enable-busy-poll: yes
+    enable-busy-poll: yes
     # busy-poll-time sets the approximate time in microseconds to busy
     # poll on a blocking receive when there is no data.
-    #busy-poll-time: 20
+    busy-poll-time: 20
     # busy-poll-budget is the budget allowed for packet batches
-    #busy-poll-budget: 64
+    busy-poll-budget: 64
     # These two tunables are used to configure the Linux OS's NAPI
     # context. Their purpose is to defer enabling of interrupts and
     # instead schedule the NAPI context from a watchdog timer.
@@ -780,7 +780,6 @@ af-xdp:
 
 
 
-
 dpdk:
   eal-params:
     proc-type: primary
@@ -790,6 +789,7 @@ dpdk:
   # RX queues (and TX queues in IPS mode) are assigned to cores in 1:1 ratio
   interfaces:
     - interface: 0000:01:00.0
+      interrupt-mode: true # enable or disable interrupts for this interface
       # Threading: possible values are either "auto" or number of threads
       # - auto takes all cores
       # in IPS mode it is required to specify the number of cores and the numbers on both interfaces must match
@@ -798,7 +798,7 @@ dpdk:
       multicast: true # enables also detection on multicast packets
       checksum-checks: false # if Suricata should validate checksums
       checksum-checks-offload: false # if possible offload checksum validation to the NIC (saves Suricata resources)
-      mtu: 3400 # Set MTU of the device in bytes
+      mtu: 1500 # Set MTU of the device in bytes
       vlan-strip-offload: false # if possible enable hardware vlan stripping
       # rss-hash-functions: 0x0 # advanced configuration option, use only if you use untested NIC card and experience RSS warnings,
       # For `rss-hash-functions` use hexadecimal 0x01ab format to specify RSS hash function flags - DumpRssFlags can help (you can see output if you use -vvv option during Suri startup)
@@ -807,10 +807,10 @@ dpdk:
 
       # To approximately calculate required amount of space (in bytes) for interface's mempool: mempool-size * mtu
       # Make sure you have enough allocated hugepages.
-      mempool-size: auto # autocalculated based on Rx/Tx descriptors and threads
-      mempool-cache-size: auto # autocalculated from the mempool size
-      rx-descriptors: 8192 # max number of descriptors
-      tx-descriptors: 8192 # max number of descriptors
+      mempool-size: auto
+      mempool-cache-size: auto
+      rx-descriptors: 4096 # max number of descriptors
+      tx-descriptors: 4096 # max number of descriptors
       #
       # IPS mode for Suricata works in 3 modes - none, tap, ips
       # - none: IDS mode only - disables IPS functionality (does not further forward packets)
@@ -818,6 +818,7 @@ dpdk:
       # - ips: the same as tap mode but it also drops packets that are flagged by rules to be dropped
       copy-mode: none
       copy-iface: none # or PCIe address of the second interface
+    - interface: default
 
 # Cross platform libpcap capture support
 pcap:
@@ -1903,7 +1904,7 @@ threading:
     management-cpu-set:
       cpu: [ 20 ]
     worker-cpu-set:
-      cpu: [ 20-35 ]
+      cpu: [ 21-36 ]
       mode: "exclusive"
       prio:
         default: "medium"

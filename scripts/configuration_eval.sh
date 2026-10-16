@@ -81,10 +81,10 @@ af_xdp_configs=(131072) #(2048 8192 32768)
 # DPDK configurations
 dpdk_configs=(2048 8192 32768)
 
-strategy=("AF_PACKET" "AF_XDP" "vPF_RING") # "AF_XDP" "AF_PACKET"  "DPDK"  "vPF_RING" # AF_XDPb
+strategy=("AF_XDP" "AF_PACKET") # "AF_XDP" "AF_PACKET"  "DPDK"  "vPF_RING" # AF_XDPb
 threads=("1")
 traffic_profile=("one_flow")
-speeds=("1" "25")  # "1" "25" "40" "90"
+speeds=("1" "25" "40" "90")  # "1" "25" "40" "90"
 packet_sizes=("1400" "512" "64")
 protocol=("udp") #  "tcp"
 for speed in "${speeds[@]}"; do

@@ -179,7 +179,7 @@ def plot_by_scenario(parsed_results, output_folder):
 
         output_path = os.path.join(
             output_folder,
-            f"scenario_{scenario_name}_threads_rx_percentage.png"
+            f"{scenario_name}_rx_percentage.png"
         )
         plt.savefig(output_path, dpi=300, bbox_inches='tight')
         print(f"Saved plot: {output_path}")

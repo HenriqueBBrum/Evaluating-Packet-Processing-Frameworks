@@ -242,7 +242,7 @@ int run_af_xdp(__u32 xdpflags, struct bpf_object *obj, __u32 num_threads, int st
 
     printf("Creating AF_XDP sockets. Dev => %s. Queues => %d.\n", dev, num_threads);
    
-    __u64 packet_buffer_size = num_frames * FRAME_SIZE;
+    __u64 packet_buffer_size = num_frames * FRAME_SIZE * 2;
     __u8 sk_created = 0;
     for (__u32 i = 0; i < num_threads; i++){
         // Allocate per-thread packet buffer
