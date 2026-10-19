@@ -134,8 +134,7 @@ for flows_file_config in "${flows_file_configs[@]}"; do
                     cd "$source_folder"
                 fi
                 sudo numactl -C "$suricata_thread_range" suricata -vvvv -c "$suricata_config" -S $ruleset -l "$output_folder_final" "$suricata_flag" -D
-
-                sudo pidstat -C "suricata" -t 1 > "$output_folder_final/pidstat.log" 2>&1 &
+                sudo pidstat /usr/local/var/run/suricata.pid -t 1 > "$output_folder_final/pidstat.log" 2>&1 &
                 pidstat_pid=$!
 
                 sleep 3

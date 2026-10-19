@@ -69,10 +69,10 @@ trex_experiments_folder="~/packet_capture/" # Crerate a trex_code folder in the 
 rx_ring_size=8192
 
 # AF-PACKET configurations
-af_packet_configs=("131072 8192") # ("32768 256" "32768 2048" "131072 256") 
+af_packet_configs=("4096 256") # ("32768 256" "32768 2048" "131072 256") 
 
 # PF_RING configurations
-pf_ring_configs=(1048576) # (65536 131072 262144)
+pf_ring_configs=(1024) # (65536 131072 262144)
 pf_ring_module_folder="/lib/modules/6.8.0-1047-nvidia/kernel/net/pf_ring/" # Replace with the actual path to the PF_RING module folder
 
 # AF_XDP configurations
@@ -81,7 +81,7 @@ af_xdp_configs=(131072) #(2048 8192 32768)
 # DPDK configurations
 dpdk_configs=(2048 8192 32768)
 
-strategy=("AF_XDP" "AF_PACKET") # "AF_XDP" "AF_PACKET"  "DPDK"  "vPF_RING" # AF_XDPb
+strategy=("AF_PACKET") # "AF_XDP" "AF_PACKET"  "DPDK"  "vPF_RING" # AF_XDPb
 threads=("1")
 traffic_profile=("one_flow")
 speeds=("1" "25" "40" "90")  # "1" "25" "40" "90"

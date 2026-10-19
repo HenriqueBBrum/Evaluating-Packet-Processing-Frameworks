@@ -108,7 +108,7 @@ for flows_file_config in "${flows_file_configs[@]}"; do
 
             for ((loop=1; loop<=loops; loop++)); do
                 flows_file_name=$(basename "$flows_file" .txt)
-                output_folder_final="$output_folder/${thread}_threads/${speed}Gbps_${flows_file_name}/$strat/config_${config_label}/loop_${loop}"
+                output_folder_final="$output_folder/${thread}_threads/${speed}Gbps_${flows_file_name}/$strat/loop_${loop}"
                 mkdir -p "$output_folder_final"
                 rm -f "$output_folder_final"/*
 

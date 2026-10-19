@@ -2,8 +2,7 @@ import os
 import json
 import re
 
-def parse_suricata_stats_log(path, name="stats.log"):
-    total_alerts = 0
+def parse_suricata_stats_log(path, tool, name="stats.log"):
     total_packets = 0    
     total_drops = 0
 
@@ -12,52 +11,49 @@ def parse_suricata_stats_log(path, name="stats.log"):
         with open(stats_log_path, 'r') as f:
             lines = f.readlines()
             for line in reversed(lines):
-                if "detect.alert" in line:
-                    alerts_match = re.search(r'(\d+)$', line) # Search numbers
-                    if alerts_match:
-                        total_alerts = int(alerts_match.group(1))
-
-                if "capture.kernel_drops" in line:
-                    drops_match = re.search(r'(\d+)$', line)
-                    if drops_match:
-                        total_drops = int(drops_match.group(1))
+                if "AF_PACKET" in tool.upper() or "PF_RING" in tool.upper():
+                    if "capture.kernel_drops" in line:
+                        drops_match = re.search(r'(\d+)$', line)
+                        if drops_match:
+                            total_drops = int(drops_match.group(1))
                     
-                if "capture.kernel_packets" in line:
-                    total_processed_match = re.search(r'(\d+)$', line)
-                    if total_processed_match:
-                        total_packets = int(total_processed_match.group(1))
+                    if "capture.kernel_packets" in line:
+                        total_processed_match = re.search(r'(\d+)$', line)
+                        if total_processed_match:
+                            total_packets = int(total_processed_match.group(1))
 
-                    break
+                        if "PF_RING" in tool.upper():
+                            total_packets = total_packets + total_drops
+
+                        break
+
+                if "DPDK" in tool.upper():
+                    if "capture.dpdk.imissed" in line:
+                        drops_match = re.search(r'(\d+)$', line)
+                        if drops_match:
+                            total_drops = int(drops_match.group(1))
+
+                    if "capture.packets" in line:
+                        total_processed_match = re.search(r'(\d+)$', line)
+                        if total_processed_match:
+                            total_packets = int(total_processed_match.group(1))
+
+                        break
+
+                if "AF_XDP" in tool.upper():
+                    if "capture.kernel_drops" in line:
+                        drops_match = re.search(r'(\d+)$', line)
+                        if drops_match:
+                            total_drops = int(drops_match.group(1))
+
+                    if "capture.afxdp_packets" in line:
+                        total_processed_match = re.search(r'(\d+)$', line)
+                        if total_processed_match:
+                            total_packets = int(total_processed_match.group(1))
+
+                        break
     
-    return total_packets, total_drops, total_alerts
-
-def parse_eve_json(path, name="eve.json"):
-    eve_file = os.path.join(path, name)
-
-    alerts_already_seen = {}
-    unique_alerts = set()
-    unique_signatures = set()
-    if os.path.exists(eve_file):
-        with open(eve_file, 'r') as f:
-            for line in f.readlines():
-                parsed_line = json.loads(line)
-                if parsed_line.get("event_type") == "alert":
-                    flow_five_tuple = f"{parsed_line.get('src_ip', '')}:{parsed_line.get('src_port', '')} -> {parsed_line.get('dest_ip', '')}:{parsed_line.get('dest_port', '')} ({parsed_line.get('proto', '')})"
-                    if flow_five_tuple not in alerts_already_seen:
-                        alerts_already_seen[flow_five_tuple] = {}
-
-                    alert_data = parsed_line.get("alert", {})
-                    signature_key = f"{alert_data.get('gid', '')}:{alert_data.get('signature_id', '')}:{alert_data.get('rev', '')}"
-                    if signature_key not in alerts_already_seen[flow_five_tuple]:
-                        alerts_already_seen[flow_five_tuple][signature_key] = 1
-                        unique_alerts.add(flow_five_tuple + " - " + signature_key)
-                    else:
-                        alerts_already_seen[flow_five_tuple][signature_key] += 1
-
-                    if signature_key not in unique_signatures:
-                        unique_signatures.add(signature_key)
-
-    return alerts_already_seen, unique_alerts, unique_signatures
+    return total_packets, total_drops
 
 
 def parse_rx_application(path, pf_ring=False, name="packet_counter.txt"):
