@@ -19,14 +19,11 @@
 # CPU usage
 # Latency ?
 
-
 # Conditions:
 # Same number of threads/cores, increasing
 # Same number of buffers (or similar), increasing
 # Same buffer size (or similar), increasing
 # Polling strategy
-
-
 
 # Input:
 # Interface
@@ -66,27 +63,27 @@ trex_folder="/opt/trex/v3.08/" # Defaul installation path
 trex_experiments_folder="~/packet_capture/" # Crerate a trex_code folder in the home directory of the tx_host and copy the pcaps and scripts to it
 
 # NIC Queues Configuration
-rx_ring_size=8192
+rx_ring_size=8192 # Max
 
 # AF-PACKET configurations
-af_packet_configs=("4096 256") # ("32768 256" "32768 2048" "131072 256") 
+af_packet_configs=("32768 2048" "131072 256") # ("32768 256" "32768 2048" "131072 256") 
 
 # PF_RING configurations
-pf_ring_configs=(1024) # (65536 131072 262144)
+pf_ring_configs=(131072 262144) # (65536 131072 262144)
 pf_ring_module_folder="/lib/modules/6.8.0-1047-nvidia/kernel/net/pf_ring/" # Replace with the actual path to the PF_RING module folder
 
 # AF_XDP configurations
-af_xdp_configs=(131072) #(2048 8192 32768)
+af_xdp_configs=(8192 32768) #(2048 8192 32768)
 
 # DPDK configurations
-dpdk_configs=(2048 8192 32768)
-
-strategy=("AF_PACKET") # "AF_XDP" "AF_PACKET"  "DPDK"  "vPF_RING" # AF_XDPb
+dpdk_configs=(8192 32768) # 8192 32768)
+ 
+strategy=(AF_XDPb) #  "AF_XDP" "AF_PACKET" "vPF_RING" "DPDK"   AF_XDPb
 threads=("1")
 traffic_profile=("one_flow")
-speeds=("1" "25" "40" "90")  # "1" "25" "40" "90"
+speeds=("1" "25" "40" "90") 
 packet_sizes=("1400" "512" "64")
-protocol=("udp") #  "tcp"
+protocol=("udp") 
 for speed in "${speeds[@]}"; do
     for packet_size in "${packet_sizes[@]}"; do
         for proto in "${protocol[@]}"; do

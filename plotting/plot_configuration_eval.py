@@ -7,6 +7,9 @@ from collections import defaultdict
 
 from parsing_files import parse_trex_log, parse_rx_application, parse_pf_ring_if_output, parse_rx_log, parse_cpu_usage
 
+colors = ["#318526", "#FA5C06", "#c8ac0d", "#4169E1", "#9467bd"]
+markers = ["^", "*", "s", "p"]
+
 def parse_configuration_eval(input_folder, parsed_results=None, folders_to_skip=None):
     """
     Parse configuration evaluation results from the directory structure.
@@ -121,12 +124,6 @@ def plot_by_speed(parsed_results, output_folder):
                     best_config = max(configs_list, key=lambda x: x["rx_percentage"])
                     best_configs[speed][(packet_size, protocol)][strategy] = best_config["config"]
 
-
-    
-    # Define colors for visual distinction
-    colors = ["#318526", "#FA5C06", "#4169E1", "#c8ac0d", "#9467bd"]
-    markers = ["^", "*", "s", "p"]
-
     
     # Create a plot for each speed
     for speed in sorted(speeds_data.keys(), key=lambda x: int(x)):
@@ -182,15 +179,15 @@ def plot_by_speed(parsed_results, output_folder):
                 )
         
         # Customize plot
-        ax.set_xlabel("Packet Size (bytes) & Protocol", fontsize=12)
-        ax.set_ylabel("RX Packet Percentage (%)", fontsize=12)
-        ax.set_title(f"Packet Reception Percentage - Speed: {speed} Gbps", )
+        ax.set_xlabel("Packet Size (bytes) & Protocol")
+        ax.set_ylabel("RX Packet Percentage (%)")
+        # ax.set_title(f"Packet Reception Percentage - Speed: {speed} Gbps", )
 
         ax.set_ylim(-5,105)
         ax.set_xticks(x_positions)
         ax.set_xticklabels([f"{size}B/{proto}" for size, proto in x_labels], fontsize=12)
         ax.grid(True, alpha=0.3)
-        ax.legend()
+        ax.legend(fontsize=12)
         
         plt.tight_layout()
         
@@ -209,9 +206,6 @@ def plot_configs_by_strategy(parsed_results, output_folder):
             for config_key, loops_data in configs.items():
                 avg_rx_percentage = _average_rx_percentage(loops_data)
                 strategy_speed_config[strategy][packet_size+"_"+proto][config_key][speed].append(avg_rx_percentage)
-
-    colors = ["#318526", "#FA5C06", "#4169E1", "#c8ac0d", "#9467bd", "#8c564b", "#17becf"]
-    markers = ["o", "^", "*", "s", "p", "d", "x"]
 
     for strategy in sorted(strategy_speed_config.keys()):
         for packet_proto_key in sorted(strategy_speed_config[strategy].keys()):
@@ -246,14 +240,13 @@ def plot_configs_by_strategy(parsed_results, output_folder):
                         alpha=0.85
                     )
 
-            ax.set_xlabel("Speed (Gbps)", fontsize=12)
-            ax.set_ylabel("RX Packet Percentage (%)", fontsize=12)
-            ax.set_title(f"Packet Reception Percentage by Config - Strategy: {strategy}, Packet/Protocol: {packet_proto_key}")
+            ax.set_xlabel("Speed (Gbps)")
+            ax.set_ylabel("RX Packet Percentage (%)")
             ax.set_ylim(-5, 105)
             ax.set_xticks(x_positions)
-            ax.set_xticklabels([f"{speed}" for speed in all_speeds], fontsize=12)
+            ax.set_xticklabels([f"{speed}" for speed in all_speeds])
             ax.grid(True, alpha=0.3)
-            ax.legend(title="Config")
+            ax.legend(title="Config", fontsize=12)
 
             plt.tight_layout()
 
@@ -296,6 +289,8 @@ if __name__ == "__main__":
     parsed_results = parse_configuration_eval(args.input)
     
     print(f"Parsed {len(parsed_results)} scenarios")
+
+    plt.rcParams.update({'font.size': 14})
     
     # Generate plots grouped by speed
     plot_by_speed(parsed_results, args.output)

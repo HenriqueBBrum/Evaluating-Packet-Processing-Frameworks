@@ -690,7 +690,7 @@ af-packet:
     cluster-type: cluster_qm
     # In some fragmentation cases, the hash can not be computed. If "defrag" is set
     # to yes, the kernel will do the needed defragmentation before sending the packets.
-    defrag: yes
+    defrag: no
     # Lock memory map to avoid it being swapped. Be careful that over
     # subscribing could lock your system
     #mmap-locked: yes
@@ -756,7 +756,7 @@ af-xdp:
     # select 'yes' to enable unaligned chunk mode.
     # Note: unaligned chunk mode uses hugepages, so the required number
     # of pages must be available.
-    mem-unaligned: yes
+    mem-unaligned: yes 
     # The following options configure the prefer-busy-polling socket
     # options. The polling time and budget can be edited here.
     # Possible values are:
@@ -796,8 +796,8 @@ dpdk:
       threads: 16 
       promisc: true # promiscuous mode - capture all packets
       multicast: true # enables also detection on multicast packets
-      checksum-checks: false # if Suricata should validate checksums
-      checksum-checks-offload: false # if possible offload checksum validation to the NIC (saves Suricata resources)
+      checksum-checks: true # if Suricata should validate checksums
+      checksum-checks-offload: true # if possible offload checksum validation to the NIC (saves Suricata resources)
       mtu: 1500 # Set MTU of the device in bytes
       vlan-strip-offload: false # if possible enable hardware vlan stripping
       # rss-hash-functions: 0x0 # advanced configuration option, use only if you use untested NIC card and experience RSS warnings,

@@ -149,14 +149,13 @@ int validate_args(uint8_t num_threads, uint8_t start_thread, const char *interfa
 }
 
 static int setup_socket(ThreadCtx *ctx, struct tpacket_req3 *req){
-    int version = TPACKET_V3;
-
     int fd = socket(AF_PACKET, SOCK_RAW, htons(ETH_P_ALL));
     if (fd < 0) {
         fprintf(stderr, "thread %d: socket failed: %s\n", ctx->thread_id, strerror(errno));
         return -1;
     }
-
+    
+    int version = TPACKET_V3;
     if (setsockopt(fd, SOL_PACKET, PACKET_VERSION, &version, sizeof(version)) < 0) {
         fprintf(stderr, "thread %d: PACKET_VERSION failed: %s\n", ctx->thread_id, strerror(errno));
         close(fd);

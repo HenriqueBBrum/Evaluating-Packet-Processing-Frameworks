@@ -43,12 +43,12 @@ rx_ring_size=8192
 # One config per strategy
 af_packet_config="32768 2048"
 af_xdp_config="32768"
-pf_ring_config="1048576"
+pf_ring_config="262144"
 dpdk_config="8192"
 
 pf_ring_module_folder="/lib/modules/6.8.0-1047-nvidia/kernel/net/pf_ring/"
 
-strategy=("AF_PACKET" "DPDK" "vPF_RING" "AF_XDP")
+strategy=("AF_XDPb") #  "AF_PACKET" "DPDK" "AF_XDP" "vPF_RING"
 flows_file_configs=("4000000_AGH.txt 35" "4000000_BRAS.txt 10"  "4000000_CICIDS2017_Monday.txt 30")
 threads=("1" "4" "16")
 
@@ -82,7 +82,7 @@ for flows_file_config in "${flows_file_configs[@]}"; do
             if [[ "$strat" == "DPDK" ]]; then
                 config="$dpdk_config"
                 dpdk_thread_list="$start_thread-$((start_thread+thread))"
-            elif [[ "$strat" == "AF_XDP" ]]; then
+            elif [[ "$strat" == "AF_XDP" || "$strat" == "AF_XDPb" ]]; then
                 config="$af_xdp_config"
             elif [[ "$strat" == "vPF_RING" ]]; then
                 config="$pf_ring_config"
@@ -129,6 +129,12 @@ for flows_file_config in "${flows_file_configs[@]}"; do
                     make > "$output_folder_final/make.log" 2>&1
                     monitored_process="af_xdp"
                     sudo numactl -C "$thread_list" ./build/af_xdp -s "$start_thread" -i "$interface" -n "$config" -d "$time_to_monitor" > "$output_folder_final/packet_counter.txt" 2>&1 &
+                elif [ "$strat" == "AF_XDPb" ]; then
+                        cd "$source_folder/../baseline_programs/af_xdp/" || exit 1
+                        make > "$output_folder_final/make.log" 2>&1
+                        monitored_process="af_xdp"
+                        read -r af_xdp_queue_count <<< "$config"
+                        sudo numactl -C $thread_list ./build/af_xdp -s $start_thread -i "$interface" -n "$af_xdp_queue_count" -d $time_to_monitor -b > "$output_folder_final/packet_counter.txt" 2>&1 &
                 elif [[ "$strat" == "vPF_RING" ]]; then
                     cd "$pf_ring_module_folder" || exit 1
                     monitored_process="pfcount_multichannel"

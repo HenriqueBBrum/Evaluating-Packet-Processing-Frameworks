@@ -48,8 +48,8 @@ trex_experiments_folder="~/packet_capture/"
 # NIC queues configuration
 rx_ring_size=8192
 
-strategy=("vPF_RING" "AF_PACKET"  "AF_XDP"  "DPDK")
-threads=("4" "16") # ("8" "16")
+strategy=("vPF_RING" "AF_PACKET" "DPDK") #   "AF_XDP" 
+threads=("4" "16") 
 flows_file_configs=("4000000_AGH.txt 35" "4000000_BRAS.txt 10"  "4000000_CICIDS2017_Monday.txt 30")
 
 run_trex() {

@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from collections import defaultdict
 
-from parsing_files import parse_trex_log, parse_suricata_stats_log, parse_rx_application
+from parsing_files import parse_trex_log, parse_suricata_stats_log
 
 
 SCENARIO_NAMES = ("BRAS", "AGH", "CICIDS2017_Monday")
@@ -85,8 +85,12 @@ def parse_configuration_eval(input_folder):
         for scenario, threads_map in parsed_results.items()
     }
 
-
 def plot_stacked_bars_by_scenario(parsed_results, output_folder):
+    # Segment colors representing the 3 packet processing states
+    color_inspected = "#318526CF"  # Bottom segment: Inspected (RX - Drops)
+    color_drops = "#c8ac0dd2"      # Middle segment: RX but not inspected (Drops)
+    color_not_rx = "#FA5B06D9"     # Top segment: Not RX
+
     for scenario_name in SCENARIO_NAMES:
         if scenario_name not in parsed_results:
             continue
@@ -107,25 +111,21 @@ def plot_stacked_bars_by_scenario(parsed_results, output_folder):
 
         fig, ax = plt.subplots(figsize=(12, 6))
 
-        group_positions = np.arange(len(thread_counts))
+        group_positions = np.arange(len(thread_counts)) * 1.5
         num_strategies = len(all_strategies)
-        total_group_width = 0.8
+        total_group_width = 1.0
         bar_width = total_group_width / num_strategies
-
-        colors = ["#318526", "#FA5C06", "#4169E1", "#c8ac0d", "#9467bd"]
-        added_labels = set()
 
         for group_idx, threads_count in enumerate(thread_counts):
             thread_data = scenario_data[threads_count]
 
-            # Calculate metrics per strategy for sorting worst to best
             strategy_metrics = []
             for strategy in all_strategies:
                 if strategy not in thread_data:
                     continue
 
                 loops = thread_data[strategy]
-                rx_pcts, inspected_pcts = [], []
+                inspected_pcts, drops_pcts, not_rx_pcts = [], [], []
 
                 for loop in loops:
                     tx = loop.get("tx_packets", 0)
@@ -135,81 +135,71 @@ def plot_stacked_bars_by_scenario(parsed_results, output_folder):
                     s_total = loop.get("suricata_total", 0)
                     s_drops = loop.get("suricata_drops", 0)
 
-                    rx_pct = (s_total / tx) * 100
-                    # % Inspected = (total_packets - total_drop) / total_tx
                     inspected_pct = ((s_total - s_drops) / tx) * 100
+                    drops_pct = (s_drops / tx) * 100
+                    not_rx_pct = max(0.0, ((tx - s_total) / tx) * 100)
 
-                    print(strategy, rx_pct, inspected_pct)
-                    print(tx, s_total, s_drops)
-                    input()
-
-                    rx_pcts.append(rx_pct)
                     inspected_pcts.append(inspected_pct)
+                    drops_pcts.append(drops_pct)
+                    not_rx_pcts.append(not_rx_pct)
 
-                avg_rx = np.mean(rx_pcts) if rx_pcts else 0.0
                 avg_inspected = np.mean(inspected_pcts) if inspected_pcts else 0.0
+                avg_drops = np.mean(drops_pcts) if drops_pcts else 0.0
+                avg_not_rx = np.mean(not_rx_pcts) if not_rx_pcts else 0.0
 
                 strategy_metrics.append({
                     "strategy": strategy,
-                    "avg_rx": avg_rx,
-                    "avg_inspected": avg_inspected
+                    "avg_inspected": avg_inspected,
+                    "avg_drops": avg_drops,
+                    "avg_not_rx": avg_not_rx,
+                    "avg_rx": avg_inspected + avg_drops
                 })
 
-            # Sort strategies from worst to best based on RX percentage
-            strategy_metrics.sort(key=lambda x: x["avg_rx"])
+            # Sort strategies by total RX percentage (worst to best)
+            # strategy_metrics.sort(key=lambda x: x["avg_rx"])
 
-            # Plot bars for the current thread group
             group_start = group_positions[group_idx] - (total_group_width / 2) + (bar_width / 2)
+            
             for bar_idx, metrics in enumerate(strategy_metrics):
                 strat = metrics["strategy"]
                 x_pos = group_start + (bar_idx * bar_width)
 
                 inspected_val = metrics["avg_inspected"]
-                rx_val = metrics["avg_rx"]
+                drops_val = metrics["avg_drops"]
+                not_rx_val = metrics["avg_not_rx"]
 
-                base_color = colors[bar_idx % len(colors)]
-                label_name = strat if strat not in added_labels else None
+                label_inspected = "Inspected" if group_idx == 0 and bar_idx == 0 else None
+                label_drops = "Dropped" if group_idx == 0 and bar_idx == 0 else None
+                label_not_rx = "Not RX by Tool" if group_idx == 0 and bar_idx == 0 else None
 
-                # Bottom bar: Inspected Packets
-                ax.bar(
-                    x_pos,
-                    inspected_val,
-                    width=bar_width * 0.9,
-                    color=base_color,
-                    alpha=0.9,
-                    label=label_name
-                )
+                # 1. Bottom bar: Inspected Packets (RX - Drops)
+                ax.bar(x_pos, inspected_val, width=bar_width * 0.75, color=color_inspected, label=label_inspected)
 
-                # Top bar: RX Packets stacked on top
-                ax.bar(
-                    x_pos,
-                    rx_val,
-                    bottom=inspected_val,
-                    width=bar_width * 0.9,
-                    color=base_color,
-                    alpha=0.4,
-                    hatch="//"
-                )
+                # 2. Middle bar: Packets RX but dropped (Not Inspected)
+                ax.bar(x_pos, drops_val, bottom=inspected_val, width=bar_width * 0.75, color=color_drops, label=label_drops)
 
-                if label_name:
-                    added_labels.add(strat)
+                # 3. Top bar: Packets Not RX
+                ax.bar(x_pos, not_rx_val, bottom=inspected_val + drops_val,width=bar_width * 0.75,color=color_not_rx, label=label_not_rx)
 
-        ax.set_xlabel("Number of Threads", fontsize=12)
-        ax.set_ylabel("Percentage of TX Packets (%)", fontsize=12)
-        ax.set_title(f"Packet Processing Metrics (Worst to Best) - Scenario: {scenario_name}")
+                # Name of each strategy placed beneath its bar
+                ax.text(x_pos, -2, strat, ha='center',va='top', fontsize=12)
 
+        ax.set_ylabel("Packets (%)")
+
+        # Thread group labels centered below strategy names
         ax.set_xticks(group_positions)
-        ax.set_xticklabels([f"{t} Threads" for t in thread_counts], fontsize=11)
-        ax.set_ylim(0, 205)  # Stacked bars can reach up to 200% combined
+        ax.set_xticklabels([f"{t} Threads" for t in thread_counts], fontweight='bold')
+        ax.tick_params(axis='x', pad=25)
 
+        ax.set_ylim(0, 105)
         ax.grid(True, axis='y', alpha=0.3)
-        ax.legend(title="Strategies", loc="upper left")
+        ax.legend(title="Packets",loc="upper center", fontsize=12)
 
         plt.tight_layout()
 
         output_path = os.path.join(
             output_folder,
-            f"{scenario_name}_stacked_packet_percentages.png"
+            f"{scenario_name}.png"
         )
         plt.savefig(output_path, dpi=300, bbox_inches='tight')
         print(f"Saved plot: {output_path}")
@@ -239,5 +229,8 @@ if __name__ == "__main__":
     os.makedirs(args.output, exist_ok=True)
 
     parsed_results = parse_configuration_eval(args.input)
+
+    plt.rcParams.update({'font.size': 14})
     plot_stacked_bars_by_scenario(parsed_results, args.output)
+
     print("Plotting complete!")
