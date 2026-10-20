@@ -158,7 +158,7 @@ def plot_by_scenario(parsed_results, output_folder):
                 )
 
         ax.set_xlabel("Number of Threads")
-        ax.set_ylabel("RX Packet Percentage (%)")
+        ax.set_ylabel("RX Packets (%)")
 
         ax.set_ylim(-5, 105)
         ax.set_xticks(x_positions)

@@ -48,8 +48,8 @@ trex_experiments_folder="~/packet_capture/"
 # NIC queues configuration
 rx_ring_size=8192
 
-strategy=("vPF_RING" "AF_PACKET" "DPDK") #   "AF_XDP" 
-threads=("4" "16") 
+strategy=("DPDK" "vPF_RING" "AF_XDP" "AF_PACKET") 
+threads=("4" "16")
 flows_file_configs=("4000000_AGH.txt 35" "4000000_BRAS.txt 10"  "4000000_CICIDS2017_Monday.txt 30")
 
 run_trex() {
@@ -129,12 +129,12 @@ for flows_file_config in "${flows_file_configs[@]}"; do
                 # Suricata logs and stats are written to the current output folder.
                 if [ "$strat" == "vPF_RING" ]; then
                     cd "$pf_ring_module_folder"
-                    sudo insmod pf_ring.ko min_num_slots=1048576 enable_tx_capture=0
+                    sudo insmod pf_ring.ko min_num_slots=262143 enable_tx_capture=0
                     sleep 3
                     cd "$source_folder"
                 fi
                 sudo numactl -C "$suricata_thread_range" suricata -vvvv -c "$suricata_config" -S $ruleset -l "$output_folder_final" "$suricata_flag" -D
-                sudo pidstat /usr/local/var/run/suricata.pid -t 1 > "$output_folder_final/pidstat.log" 2>&1 &
+                sudo pidstat -p "$(cat /usr/local/var/run/suricata.pid)" -t 1 > "$output_folder_final/pidstat.log" 2>&1 &
                 pidstat_pid=$!
 
                 sleep 3

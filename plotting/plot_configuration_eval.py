@@ -180,7 +180,7 @@ def plot_by_speed(parsed_results, output_folder):
         
         # Customize plot
         ax.set_xlabel("Packet Size (bytes) & Protocol")
-        ax.set_ylabel("RX Packet Percentage (%)")
+        ax.set_ylabel("RX Packets (%)")
         # ax.set_title(f"Packet Reception Percentage - Speed: {speed} Gbps", )
 
         ax.set_ylim(-5,105)
@@ -241,7 +241,7 @@ def plot_configs_by_strategy(parsed_results, output_folder):
                     )
 
             ax.set_xlabel("Speed (Gbps)")
-            ax.set_ylabel("RX Packet Percentage (%)")
+            ax.set_ylabel("RX Packets (%)")
             ax.set_ylim(-5, 105)
             ax.set_xticks(x_positions)
             ax.set_xticklabels([f"{speed}" for speed in all_speeds])

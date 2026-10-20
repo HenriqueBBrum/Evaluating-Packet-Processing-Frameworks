@@ -66,7 +66,7 @@ trex_experiments_folder="~/packet_capture/" # Crerate a trex_code folder in the 
 rx_ring_size=8192 # Max
 
 # AF-PACKET configurations
-af_packet_configs=("32768 2048" "131072 256") # ("32768 256" "32768 2048" "131072 256") 
+af_packet_configs=("32768 2048") # "131072 256")  
 
 # PF_RING configurations
 pf_ring_configs=(131072 262144) # (65536 131072 262144)
@@ -78,7 +78,7 @@ af_xdp_configs=(8192 32768) #(2048 8192 32768)
 # DPDK configurations
 dpdk_configs=(8192 32768) # 8192 32768)
  
-strategy=(AF_XDPb) #  "AF_XDP" "AF_PACKET" "vPF_RING" "DPDK"   AF_XDPb
+strategy=(AF_PACKET) #  "AF_XDP" "AF_PACKET" "vPF_RING" "DPDK"   AF_XDPb
 threads=("1")
 traffic_profile=("one_flow")
 speeds=("1" "25" "40" "90") 
@@ -223,6 +223,7 @@ for thread in "${threads[@]}"; do
                     fi
 
                     cd $source_folder
+                    exit
                 done
                 printf '%*s\n\n' "${COLUMNS:-$(tput cols)}" '' | tr ' ' '-'
             done
