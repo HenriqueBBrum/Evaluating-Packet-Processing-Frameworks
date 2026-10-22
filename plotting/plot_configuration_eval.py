@@ -186,6 +186,8 @@ def plot_by_speed(parsed_results, output_folder):
         ax.set_ylim(-5,105)
         ax.set_xticks(x_positions)
         ax.set_xticklabels([f"{size}B/{proto}" for size, proto in x_labels], fontsize=12)
+        ax.tick_params(which="major", labelsize=12)
+
         ax.grid(True, alpha=0.3)
         ax.legend(fontsize=12)
         
@@ -243,8 +245,12 @@ def plot_configs_by_strategy(parsed_results, output_folder):
             ax.set_xlabel("Speed (Gbps)")
             ax.set_ylabel("RX Packets (%)")
             ax.set_ylim(-5, 105)
+
             ax.set_xticks(x_positions)
             ax.set_xticklabels([f"{speed}" for speed in all_speeds])
+
+            ax.tick_params(which="major", labelsize=12)
+
             ax.grid(True, alpha=0.3)
             ax.legend(title="Config", fontsize=12)
 
@@ -291,7 +297,8 @@ if __name__ == "__main__":
     print(f"Parsed {len(parsed_results)} scenarios")
 
     plt.rcParams.update({'font.size': 14})
-    
+    plt.rcParams.update({'legend.title_fontsize': 12})
+
     # Generate plots grouped by speed
     plot_by_speed(parsed_results, args.output)
     plot_configs_by_strategy(parsed_results, args.output)

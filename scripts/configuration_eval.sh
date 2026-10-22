@@ -1,18 +1,10 @@
 #!/bin/bash
 
-
 # Packet capture tools:
 # AF_PACKET
 # AF_XDP
 # PF_RING
 # DPDK
-# NETMAP
-
-# Experiments included: 
-# Single flow, multiple speeds, multiple protocols, multiple packet sizes
-# Multiple flows with fixed length. multiple speeds, multiple protocols, multiple packet sizes
-# Multiple flows with realistic flow lengths, multiple speeds (?)
-# Microbursts
 
 # Metrics measured:
 # Packet loss
@@ -73,16 +65,16 @@ pf_ring_configs=(131072 262144) # (65536 131072 262144)
 pf_ring_module_folder="/lib/modules/6.8.0-1047-nvidia/kernel/net/pf_ring/" # Replace with the actual path to the PF_RING module folder
 
 # AF_XDP configurations
-af_xdp_configs=(8192 32768) #(2048 8192 32768)
+af_xdp_configs=(32768) #(8192 32768) #(2048 8192 32768)
 
 # DPDK configurations
 dpdk_configs=(8192 32768) # 8192 32768)
  
-strategy=(AF_PACKET) #  "AF_XDP" "AF_PACKET" "vPF_RING" "DPDK"   AF_XDPb
+strategy=(AF_XDP) #  "AF_XDP" "AF_PACKET" "vPF_RING" "DPDK"   AF_XDPb
 threads=("1")
 traffic_profile=("one_flow")
-speeds=("1" "25" "40" "90") 
-packet_sizes=("1400" "512" "64")
+speeds=("25")  # "1" "25" "40" "90" 
+packet_sizes=("512") # "1400" "64"
 protocol=("udp") 
 for speed in "${speeds[@]}"; do
     for packet_size in "${packet_sizes[@]}"; do

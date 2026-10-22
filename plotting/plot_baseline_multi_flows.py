@@ -163,6 +163,8 @@ def plot_by_scenario(parsed_results, output_folder):
         ax.set_ylim(-5, 105)
         ax.set_xticks(x_positions)
         ax.set_xticklabels([str(threads_count) for threads_count in thread_counts])
+        ax.tick_params(which="major", labelsize=12)
+
         ax.grid(True, alpha=0.3)
         ax.legend(fontsize=12)
 
@@ -211,6 +213,8 @@ if __name__ == "__main__":
     print(f"Parsed {len(parsed_results)} scenarios")
 
     plt.rcParams.update({'font.size': 14})
+    plt.rcParams.update({'legend.title_fontsize': 12})
+
     plot_by_scenario(parsed_results, args.output)
     
     print("Plotting complete!")

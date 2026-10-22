@@ -147,16 +147,21 @@ def plot_stacked_bars_by_scenario(parsed_results, output_folder):
                 avg_drops = np.mean(drops_pcts) if drops_pcts else 0.0
                 avg_not_rx = np.mean(not_rx_pcts) if not_rx_pcts else 0.0
 
+                sd_inspected = np.std(inspected_pcts) if inspected_pcts else 0.0
+                sd_drops = np.std(drops_pcts) if drops_pcts else 0.0
+                sd_not_rx = np.std(not_rx_pcts) if not_rx_pcts else 0.0
+
+                print(f"{scenario_name} {threads_count} {strategy} SD inspected {sd_inspected} SD drops {sd_drops} SD not rx {sd_not_rx}")
+
                 strategy_metrics.append({
                     "strategy": strategy,
                     "avg_inspected": avg_inspected,
                     "avg_drops": avg_drops,
                     "avg_not_rx": avg_not_rx,
-                    "avg_rx": avg_inspected + avg_drops
+                    "sd_inspected": sd_inspected,
+                    "sd_drops": sd_drops,
+                    "sd_not_rx": sd_not_rx
                 })
-
-            # Sort strategies by total RX percentage (worst to best)
-            # strategy_metrics.sort(key=lambda x: x["avg_rx"])
 
             group_start = group_positions[group_idx] - (total_group_width / 2) + (bar_width / 2)
             
@@ -173,13 +178,16 @@ def plot_stacked_bars_by_scenario(parsed_results, output_folder):
                 label_not_rx = "Not RX by Tool" if group_idx == 0 and bar_idx == 0 else None
 
                 # 1. Bottom bar: Inspected Packets (RX - Drops)
-                ax.bar(x_pos, inspected_val, width=bar_width * 0.75, color=color_inspected, label=label_inspected)
+                ax.bar(x_pos, inspected_val, width=bar_width * 0.75, yerr=metrics["sd_inspected"], error_kw=dict(ecolor=color_inspected, lw=1, capsize=4, capthick=1),
+                       color=color_inspected, label=label_inspected)
 
                 # 2. Middle bar: Packets RX but dropped (Not Inspected)
-                ax.bar(x_pos, drops_val, bottom=inspected_val, width=bar_width * 0.75, color=color_drops, label=label_drops)
+                ax.bar(x_pos, drops_val, bottom=inspected_val, width=bar_width * 0.75, yerr=metrics["sd_drops"], error_kw=dict(ecolor=color_drops, lw=1, capsize=4, capthick=1),
+                       color=color_drops, label=label_drops)
 
                 # 3. Top bar: Packets Not RX
-                ax.bar(x_pos, not_rx_val, bottom=inspected_val + drops_val,width=bar_width * 0.75,color=color_not_rx, label=label_not_rx)
+                ax.bar(x_pos, not_rx_val, bottom=inspected_val + drops_val,width=bar_width * 0.75, yerr=metrics["sd_not_rx"], error_kw=dict(ecolor=color_not_rx, lw=1, capsize=4, capthick=1),
+                        color=color_not_rx, label=label_not_rx)
 
                 # Name of each strategy placed beneath its bar
                 ax.text(x_pos, -2, strat, ha='center',va='top', fontsize=12)
@@ -191,7 +199,9 @@ def plot_stacked_bars_by_scenario(parsed_results, output_folder):
         ax.set_xticklabels([f"{t} Threads" for t in thread_counts], fontweight='bold')
         ax.tick_params(axis='x', pad=25)
 
-        ax.set_ylim(0, 105)
+        ax.set_ylim(0, 110)
+        ax.tick_params(which="major", labelsize=12)
+
         ax.grid(True, axis='y', alpha=0.3)
         ax.legend(title="Packets",loc="upper center", fontsize=12)
 
@@ -231,6 +241,8 @@ if __name__ == "__main__":
     parsed_results = parse_configuration_eval(args.input)
 
     plt.rcParams.update({'font.size': 14})
+    plt.rcParams.update({'legend.title_fontsize': 12})
+
     plot_stacked_bars_by_scenario(parsed_results, args.output)
 
     print("Plotting complete!")
