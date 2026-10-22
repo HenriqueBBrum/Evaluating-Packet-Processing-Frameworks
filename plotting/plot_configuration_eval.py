@@ -127,7 +127,7 @@ def plot_by_speed(parsed_results, output_folder):
     
     # Create a plot for each speed
     for speed in sorted(speeds_data.keys(), key=lambda x: int(x)):
-        fig, ax = plt.subplots(figsize=(10, 6))
+        fig, ax = plt.subplots(figsize=(12, 6))
         
         # Prepare data for X-axis (sorted by packet_size, then protocol)
         x_labels = sorted(speeds_data[speed].keys(), 
