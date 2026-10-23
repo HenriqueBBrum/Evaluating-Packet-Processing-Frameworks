@@ -8,7 +8,7 @@ from collections import defaultdict
 from parsing_files import parse_trex_log, parse_rx_application, parse_pf_ring_if_output, parse_rx_log, parse_cpu_usage
 
 
-SCENARIO_NAMES = ("BRAS", "AGH", "CICIDS2017_Monday")
+SCENARIO_NAMES = ("AGH", "BRAS", "CICIDS2017_Monday")
 
 colors = ["#318526", "#FA5C06", "#c8ac0d", "#4169E1", "#9467bd"]
 markers = ["^", "*", "s", "p", "o"]
@@ -104,28 +104,39 @@ def parse_configuration_eval(input_folder, parsed_results=None, folders_to_skip=
         for scenario, threads_map in parsed_results.items()
     }
 
-
 def plot_by_scenario(parsed_results, output_folder):
-    for scenario_name in SCENARIO_NAMES:
-        if scenario_name not in parsed_results:
-            continue
+    scenarios = [s for s in SCENARIO_NAMES if s in parsed_results]
+    if not scenarios:
+        return
 
+    # Create vertically stacked subplots (N rows, 1 column) sharing X axis
+    fig, axes = plt.subplots(
+        nrows=len(scenarios),
+        ncols=1,
+        figsize=(12, 4 * len(scenarios)),
+        sharex=True
+    )
+
+    # Handle single subplot case where axes is not an array
+    if len(scenarios) == 1:
+        axes = [axes]
+
+    for idx, scenario_name in enumerate(scenarios):
+        ax = axes[idx]
         scenario_data = parsed_results[scenario_name]
-        fig, ax = plt.subplots(figsize=(10, 6))
 
         thread_counts = sorted(scenario_data.keys())
         x_positions = np.arange(len(thread_counts))
 
-        all_strategies = set()
-        for thread_data in scenario_data.values():
-            all_strategies.update(thread_data.keys())
-        all_strategies = sorted(all_strategies)
+        all_strategies = sorted({
+            strategy
+            for thread_data in scenario_data.values()
+            for strategy in thread_data.keys()
+        })
 
-        color_idx = 0
-        for strategy in all_strategies:
+        for color_idx, strategy in enumerate(all_strategies):
             strategy_color = colors[color_idx % len(colors)]
             strategy_marker = markers[color_idx % len(markers)]
-            color_idx += 1
 
             y_values = []
             for threads_count in thread_counts:
@@ -147,7 +158,7 @@ def plot_by_scenario(parsed_results, output_folder):
             if not np.all(np.isnan(y_values)):
                 ax.plot(
                     x_positions,
-                    y_values, 
+                    y_values,
                     marker=strategy_marker,
                     linestyle='-',
                     color=strategy_color,
@@ -157,27 +168,31 @@ def plot_by_scenario(parsed_results, output_folder):
                     alpha=0.8
                 )
 
-        ax.set_xlabel("Number of Threads")
-        ax.set_ylabel("RX Packets (%)")
+        # Bold scenario label on top of each subplot
+        ax.set_title(f"{scenario_name}", fontweight='bold', fontsize=14)
 
+        ax.set_ylabel("RX Packets (%)", fontsize=14)
         ax.set_ylim(-5, 105)
         ax.set_xticks(x_positions)
-        ax.set_xticklabels([str(threads_count) for threads_count in thread_counts])
-        ax.tick_params(which="major", labelsize=12)
-
         ax.grid(True, alpha=0.3)
-        ax.legend(fontsize=12)
 
-        plt.tight_layout()
+    # Set x-ticks and label on the bottom subplot
+    last_scenario_threads = sorted(parsed_results[scenarios[-1]].keys())
+    axes[-1].set_xticklabels([str(tc) for tc in last_scenario_threads], fontsize=14)
+    axes[-1].set_xlabel("Threads", fontsize=14)
 
-        output_path = os.path.join(
-            output_folder,
-            f"{scenario_name}.png"
-        )
-        plt.savefig(output_path, dpi=300, bbox_inches='tight')
-        print(f"Saved plot: {output_path}")
-        plt.close()
+    # Single shared legend at the top of the entire figure
+    handles, labels = axes[0].get_legend_handles_labels()
+    fig.legend(handles, labels, loc='upper center', bbox_to_anchor=(0.5, 1.02), ncol=len(labels), fontsize=12)
 
+    plt.tight_layout()
+
+    # Save composite figure
+    output_path = os.path.join(output_folder, "baseline_multi_flows.png")
+    plt.savefig(output_path, dpi=300, bbox_inches='tight')
+    plt.savefig(output_path.split(".")[0] + ".eps", format="eps", bbox_inches="tight")
+    print(f"Saved plot: {output_path}")
+    plt.close()
 
 
 

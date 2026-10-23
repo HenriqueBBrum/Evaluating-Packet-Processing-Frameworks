@@ -703,7 +703,7 @@ af-packet:
     # the following value. If you are using flow "cluster-type" and have really network
     # intensive single-flow you may want to set the "ring-size" independently of the number
     # of threads:
-    ring-size: 262143
+    ring-size: 659200 # 10300
     # Block size is used by tpacket_v3 only. It should set to a value high enough to contain
     # a decent number of packets. Size is in bytes so please consider your MTU. It should be
     # a power of 2 and it must be multiple of page size (usually 4096).
@@ -800,16 +800,16 @@ dpdk:
       checksum-checks-offload: false # if possible offload checksum validation to the NIC (saves Suricata resources)
       mtu: 1500 # Set MTU of the device in bytes
       vlan-strip-offload: false # if possible enable hardware vlan stripping
-      # rss-hash-functions: 0x0 # advanced configuration option, use only if you use untested NIC card and experience RSS warnings,
+      rss-hash-functions: 0x0 # advanced configuration option, use only if you use untested NIC card and experience RSS warnings,
       # For `rss-hash-functions` use hexadecimal 0x01ab format to specify RSS hash function flags - DumpRssFlags can help (you can see output if you use -vvv option during Suri startup)
       # setting auto to rss_hf sets the default RSS hash functions (based on IP addresses)
       # linkup-timeout: 0 # how many seconds to wait before giving up, 0 to disable link state checking
 
       # To approximately calculate required amount of space (in bytes) for interface's mempool: mempool-size * mtu
       # Make sure you have enough allocated hugepages.
-      mempool-size: 4194288
+      mempool-size: auto
       mempool-cache-size: 512
-      rx-descriptors: 8192 # max number of descriptors
+      rx-descriptors: 2048 # max number of descriptors
       tx-descriptors: 256 # max number of descriptors
       #
       # IPS mode for Suricata works in 3 modes - none, tap, ips

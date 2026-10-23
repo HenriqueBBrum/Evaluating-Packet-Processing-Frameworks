@@ -120,35 +120,44 @@ def plot_by_speed(parsed_results, output_folder):
         for (packet_size, protocol), strategy_data in scenario_data.items():
             for strategy, configs_list in strategy_data.items():
                 if strategy not in best_configs[speed][(packet_size, protocol)]:
-                    # Find config with highest average rx_percentage across all scenarios
                     best_config = max(configs_list, key=lambda x: x["rx_percentage"])
                     best_configs[speed][(packet_size, protocol)][strategy] = best_config["config"]
 
+    sorted_speeds = sorted(speeds_data.keys(), key=lambda x: int(x))
+    if not sorted_speeds:
+        return
+
+    # Create vertically stacked subplots (N rows, 1 column) sharing X axis
+    fig, axes = plt.subplots(
+        nrows=len(sorted_speeds), 
+        ncols=1, 
+        figsize=(12, 4 * len(sorted_speeds)), 
+        sharex=True
+    )
     
-    # Create a plot for each speed
-    for speed in sorted(speeds_data.keys(), key=lambda x: int(x)):
-        fig, ax = plt.subplots(figsize=(12, 6))
+    # Handle single subplot case where axes is not an array
+    if len(sorted_speeds) == 1:
+        axes = [axes]
+
+    for idx, speed in enumerate(sorted_speeds):
+        ax = axes[idx]
         
         # Prepare data for X-axis (sorted by packet_size, then protocol)
-        x_labels = sorted(speeds_data[speed].keys(), 
-                         key=lambda x: (int(x[0]), x[1]))
+        x_labels = sorted(speeds_data[speed].keys(), key=lambda x: (int(x[0]), x[1]))
         x_positions = np.arange(len(x_labels))
         
         # Get all unique strategies
-        all_strategies = set()
-        for scenario_data in speeds_data[speed].values():
-            all_strategies.update(scenario_data.keys())
+        all_strategies = sorted({
+            strategy 
+            for scenario_data in speeds_data[speed].values() 
+            for strategy in scenario_data.keys()
+        })
         
-        all_strategies = sorted(all_strategies)
-        
-        # Plot lines for each strategy (only the best config)
-        color_idx = 0
-        for strategy in all_strategies:
+        # Plot lines for each strategy
+        for color_idx, strategy in enumerate(all_strategies):
             strategy_color = colors[color_idx % len(colors)]
             strategy_marker = markers[color_idx % len(markers)]
-            color_idx += 1
             
-            # Collect Y values for this strategy and best config across all scenarios
             y_values = []
             valid_x_positions = []
             
@@ -157,14 +166,12 @@ def plot_by_speed(parsed_results, output_folder):
                 scenario_data = speeds_data[speed][(packet_size, protocol)]
                 
                 if strategy in scenario_data:
-                    # Find matching best config
                     for config_entry in scenario_data[strategy]:
                         if config_entry["config"] == best_config:
                             y_values.append(config_entry["rx_percentage"])
                             valid_x_positions.append(x_pos)
                             break
 
-            # Plot line if there's data
             if valid_x_positions:
                 ax.plot(
                     valid_x_positions, 
@@ -178,26 +185,31 @@ def plot_by_speed(parsed_results, output_folder):
                     alpha=0.8
                 )
         
-        # Customize plot
-        ax.set_xlabel("Packet Size (bytes) & Protocol")
-        ax.set_ylabel("RX Packets (%)")
-        # ax.set_title(f"Packet Reception Percentage - Speed: {speed} Gbps", )
-
-        ax.set_ylim(-5,105)
+        # Bold speed label on top of each subplot
+        ax.set_title(f"{speed} Gbps", fontweight='bold', fontsize=14)
+        
+        ax.set_ylabel("RX Packets (%)", fontsize=14)
+        ax.set_ylim(-5, 105)
         ax.set_xticks(x_positions)
-        ax.set_xticklabels([f"{size}B/{proto}" for size, proto in x_labels], fontsize=12)
-        ax.tick_params(which="major", labelsize=12)
-
         ax.grid(True, alpha=0.3)
-        ax.legend(fontsize=12)
-        
-        plt.tight_layout()
-        
-        # Save plot
-        output_path = os.path.join(output_folder, f"speed_{speed}Gbps_rx_percentage.png")
-        plt.savefig(output_path, dpi=300, bbox_inches='tight')
-        print(f"Saved plot: {output_path}")
-        plt.close()
+
+    # Set x-ticks labels only on the bottom subplot
+    x_labels_bottom = sorted(speeds_data[sorted_speeds[-1]].keys(), key=lambda x: (int(x[0]), x[1]))
+    axes[-1].set_xticklabels([f"{size}" for size, proto in x_labels_bottom], fontsize=14)
+    axes[-1].set_xlabel("Packet Size (bytes)", fontsize=14)
+
+    # Single shared legend at the top of the entire figure
+    handles, labels = axes[0].get_legend_handles_labels()
+    fig.legend(handles, labels, loc='upper center', bbox_to_anchor=(0.5, 1.02), ncol=len(labels), fontsize=12)
+
+    plt.tight_layout()
+    
+    # Save composite figure
+    output_path = os.path.join(output_folder, "speed_vs_rx_percentage.png")
+    plt.savefig(output_path, dpi=300, bbox_inches='tight')
+    plt.savefig(output_path.split(".")[0] + ".eps", format="eps", bbox_inches="tight")
+    print(f"Saved plot: {output_path}")
+    plt.close()
 
 
 def plot_configs_by_strategy(parsed_results, output_folder):

@@ -2,13 +2,15 @@ import os
 import re
 import argparse
 import matplotlib.pyplot as plt
+import matplotlib.patches as mpatches
+
 import numpy as np
 from collections import defaultdict
 
 from parsing_files import parse_trex_log, parse_suricata_stats_log
 
 
-SCENARIO_NAMES = ("BRAS", "AGH", "CICIDS2017_Monday")
+SCENARIO_NAMES = ("AGH", "BRAS", "CICIDS2017_Monday")
 
 
 def extract_scenario_name(scenario_folder_name):
@@ -86,34 +88,45 @@ def parse_configuration_eval(input_folder):
     }
 
 def plot_stacked_bars_by_scenario(parsed_results, output_folder):
-    # Segment colors representing the 3 packet processing states
     color_inspected = "#318526CF"  # Bottom segment: Inspected (RX - Drops)
     color_drops = "#c8ac0dd2"      # Middle segment: RX but not inspected (Drops)
     color_not_rx = "#FA5B06D9"     # Top segment: Not RX
 
-    for scenario_name in SCENARIO_NAMES:
-        if scenario_name not in parsed_results:
-            continue
+    scenarios = [s for s in SCENARIO_NAMES if s in parsed_results]
+    if not scenarios:
+        return
 
+    # Create vertically stacked subplots (N rows, 1 column) sharing X axis
+    fig, axes = plt.subplots(
+        nrows=len(scenarios),
+        ncols=1,
+        figsize=(12, 5 * len(scenarios)),
+        sharex=True
+    )
+
+    # Handle single subplot case where axes is not an array
+    if len(scenarios) == 1:
+        axes = [axes]
+
+    for idx, scenario_name in enumerate(scenarios):
+        ax = axes[idx]
         scenario_data = parsed_results[scenario_name]
         thread_counts = sorted(scenario_data.keys())
         if not thread_counts:
             continue
 
-        # Get all distinct strategies across all thread counts
-        all_strategies = set()
-        for thread_data in scenario_data.values():
-            all_strategies.update(thread_data.keys())
-        all_strategies = sorted(all_strategies)
+        all_strategies = sorted({
+            strategy
+            for thread_data in scenario_data.values()
+            for strategy in thread_data.keys()
+        })
 
         if not all_strategies:
             continue
 
-        fig, ax = plt.subplots(figsize=(12, 6))
-
         group_positions = np.arange(len(thread_counts)) * 1.5
         num_strategies = len(all_strategies)
-        total_group_width = 1.0
+        total_group_width = 1.15
         bar_width = total_group_width / num_strategies
 
         for group_idx, threads_count in enumerate(thread_counts):
@@ -151,8 +164,6 @@ def plot_stacked_bars_by_scenario(parsed_results, output_folder):
                 sd_drops = np.std(drops_pcts) if drops_pcts else 0.0
                 sd_not_rx = np.std(not_rx_pcts) if not_rx_pcts else 0.0
 
-                print(f"{scenario_name} {threads_count} {strategy} SD inspected {sd_inspected} SD drops {sd_drops} SD not rx {sd_not_rx}")
-
                 strategy_metrics.append({
                     "strategy": strategy,
                     "avg_inspected": avg_inspected,
@@ -164,7 +175,7 @@ def plot_stacked_bars_by_scenario(parsed_results, output_folder):
                 })
 
             group_start = group_positions[group_idx] - (total_group_width / 2) + (bar_width / 2)
-            
+
             for bar_idx, metrics in enumerate(strategy_metrics):
                 strat = metrics["strategy"]
                 x_pos = group_start + (bar_idx * bar_width)
@@ -173,48 +184,74 @@ def plot_stacked_bars_by_scenario(parsed_results, output_folder):
                 drops_val = metrics["avg_drops"]
                 not_rx_val = metrics["avg_not_rx"]
 
-                label_inspected = "Inspected" if group_idx == 0 and bar_idx == 0 else None
-                label_drops = "Dropped" if group_idx == 0 and bar_idx == 0 else None
-                label_not_rx = "Not RX by Tool" if group_idx == 0 and bar_idx == 0 else None
+                label_inspected = "Inspected" if idx == 0 and group_idx == 0 and bar_idx == 0 else None
+                label_drops = "Dropped" if idx == 0 and group_idx == 0 and bar_idx == 0 else None
+                label_not_rx = "Not RX by Tool" if idx == 0 and group_idx == 0 and bar_idx == 0 else None
 
-                # 1. Bottom bar: Inspected Packets (RX - Drops)
-                ax.bar(x_pos, inspected_val, width=bar_width * 0.75, yerr=metrics["sd_inspected"], error_kw=dict(ecolor=color_inspected, lw=1, capsize=4, capthick=1),
+                # 1. Bottom bar: Inspected
+                ax.bar(x_pos, inspected_val, width=bar_width * 0.75, yerr=metrics["sd_inspected"],
+                       error_kw=dict(ecolor=color_inspected, lw=1, capsize=4, capthick=1),
                        color=color_inspected, label=label_inspected)
 
-                # 2. Middle bar: Packets RX but dropped (Not Inspected)
-                ax.bar(x_pos, drops_val, bottom=inspected_val, width=bar_width * 0.75, yerr=metrics["sd_drops"], error_kw=dict(ecolor=color_drops, lw=1, capsize=4, capthick=1),
+                # 2. Middle bar: Dropped
+                ax.bar(x_pos, drops_val, bottom=inspected_val, width=bar_width * 0.75, yerr=metrics["sd_drops"],
+                       error_kw=dict(ecolor=color_drops, lw=1, capsize=4, capthick=1),
                        color=color_drops, label=label_drops)
 
-                # 3. Top bar: Packets Not RX
-                ax.bar(x_pos, not_rx_val, bottom=inspected_val + drops_val,width=bar_width * 0.75, yerr=metrics["sd_not_rx"], error_kw=dict(ecolor=color_not_rx, lw=1, capsize=4, capthick=1),
-                        color=color_not_rx, label=label_not_rx)
+                # 3. Top bar: Not RX
+                ax.bar(x_pos, not_rx_val, bottom=inspected_val + drops_val, width=bar_width * 0.75, yerr=metrics["sd_not_rx"],
+                       error_kw=dict(ecolor=color_not_rx, lw=1, capsize=4, capthick=1),
+                       color=color_not_rx, label=label_not_rx)
 
-                # Name of each strategy placed beneath its bar
-                ax.text(x_pos, -2, strat, ha='center',va='top', fontsize=12)
+                # Strategy name under bar
+                ax.text(x_pos, -2, "AF_XDPb" if strat == "AF_XDP" else strat, ha='center', va='top', fontsize=11)
 
-        ax.set_ylabel("Packets (%)")
+        # Bold scenario title on top of each subplot
+        ax.set_title(f"{scenario_name}", fontweight='bold', fontsize=14, pad=8)
 
-        # Thread group labels centered below strategy names
+        ax.set_ylabel("Packets (%)", fontsize=15)
         ax.set_xticks(group_positions)
-        ax.set_xticklabels([f"{t} Threads" for t in thread_counts], fontweight='bold')
-        ax.tick_params(axis='x', pad=25)
-
         ax.set_ylim(0, 110)
-        ax.tick_params(which="major", labelsize=12)
-
         ax.grid(True, axis='y', alpha=0.3)
-        ax.legend(title="Packets",loc="upper center", fontsize=12)
 
-        plt.tight_layout()
+    # Configure bottom X-axis ticks and shared X-label
+    last_scenario_threads = sorted(parsed_results[scenarios[-1]].keys())
+    last_group_positions = np.arange(len(last_scenario_threads)) * 1.5
+    axes[-1].set_xticks(last_group_positions)
+    axes[-1].set_xticklabels([f"{t} Threads" for t in last_scenario_threads], fontweight='bold')
+    axes[-1].tick_params(axis='x', pad=25)
 
-        output_path = os.path.join(
-            output_folder,
-            f"{scenario_name}.png"
-        )
-        plt.savefig(output_path, dpi=300, bbox_inches='tight')
-        print(f"Saved plot: {output_path}")
-        plt.close()
+    # Extract handles and labels
+    handles, labels = axes[0].get_legend_handles_labels()
 
+    # Create an invisible dummy handle for the title to place it on the exact same Y-axis line
+    title_handle = mpatches.Rectangle((0, 0), 0, 0, fill=False, edgecolor='none', visible=False)
+    
+    handles.insert(0, title_handle)
+    labels.insert(0, "Packets:")
+
+    fig.legend(
+        handles, 
+        labels, 
+        loc="upper center", 
+        bbox_to_anchor=(0.5, 1.02), 
+        ncol=len(labels), 
+        fontsize=12,
+        handletextpad=0.2,
+        columnspacing=1.5,
+        frameon=True
+    )
+
+    plt.tight_layout()
+    # Leave extra space at the top for the elevated legend
+    # plt.subplots_adjust(top=0.94)
+
+    # Save composite figure
+    output_path = os.path.join(output_folder, "suricata_eval.png")
+    plt.savefig(output_path, dpi=300, bbox_inches='tight')
+    plt.savefig(output_path.split(".")[0] + ".eps", format="eps", bbox_inches="tight")
+    print(f"Saved plot: {output_path}")
+    plt.close()
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Plot stacked packet percentage bars per scenario")
