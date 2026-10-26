@@ -48,7 +48,7 @@ dpdk_config="8192"
 
 pf_ring_module_folder="/lib/modules/6.8.0-1047-nvidia/kernel/net/pf_ring/"
 
-strategy=("AF_XDPb") #  "AF_PACKET" "DPDK" "AF_XDP" "vPF_RING"
+strategy=("AF_PACKET" "DPDK" "AF_XDP" "vPF_RING")
 flows_file_configs=("4000000_AGH.txt 35" "4000000_BRAS.txt 10"  "4000000_CICIDS2017_Monday.txt 30")
 threads=("1" "4" "16")
 
