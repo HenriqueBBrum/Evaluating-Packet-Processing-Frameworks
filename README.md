@@ -2,7 +2,7 @@
 
 This repository contains an analysis of four different packet capture and processing frameworks: AF_PACKET, AF_XDP, DPDK, and (vanilla) PF_RING. We evaluated them using a simple packet-counting application (inside the `baseline/` folder) and when integrated with the Suricata NIDS. 
 
-## Results and Outcomes
+## Results
 
 Our results show that DPDK has unmatched raw packet processing capabilities, presenting all packets to the user-space application across almost all scenarios. Figures 1 and 2 show these results under different link speeds, packet sizes, and flow profiles. 
 
