@@ -22,9 +22,9 @@ Conversely, AF_XDP with busy-polling did not present all packets to Suricata, bu
 
 For more information on the evaluated frameworks and the experiment setup, read the [full report](Evaluating_Packet_Processing_Frameworks.pdf).
 
-## Reproducing this research
+## Reproducing this work
 
-This section briefly details the steps needed to reproduce this research. 
+This section briefly details the steps needed to reproduce this work. 
 
 ### Setup
 
