@@ -4,7 +4,7 @@ This repository contains an analysis of four different packet capture and proces
 
 ## Results
 
-Our results show that DPDK has unmatched raw packet processing capabilities, presenting all packets to the user-space application across almost all scenarios. Figures 1 and 2 show these results under different link speeds, packet sizes, and flow profiles. In Figure 2, AGH is sent at 35Gbps, BRas at 10Gbps, and CICIDS2017_Monday at 30Gbps
+Our results show that DPDK has unmatched raw packet processing capabilities, presenting all packets to the user-space application across almost all scenarios. Figures 1 and 2 show these results under different link speeds, packet sizes, and flow profiles. In Figure 2 (and 3), AGH is sent at 35Gbps, BRAS at 10Gbps, and CICIDS2017_Monday at 30Gbps
 
 *Figure 1: Single-threaded experiments with varying speeds and packet sizes.*
 ![Raw packet processing evaluation.](assets/speed_vs_rx_percentage.png)
